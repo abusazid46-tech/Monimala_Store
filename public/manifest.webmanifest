@@ -1,0 +1,17 @@
+{
+  "name": "Monimala Store",
+  "short_name": "Monimala",
+  "description": "Premium Assamese traditional jewellery store.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFF8F0",
+  "theme_color": "#A61D2D",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
