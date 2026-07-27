@@ -27,14 +27,14 @@ export function MobileBottomNav() {
       </Link>
       <Link href="/products" className="flex h-16 flex-col items-center justify-center gap-1">
         <Grid2X2 className="h-5 w-5" />
-        Products
+        All Products
       </Link>
       <a
         href={`https://wa.me/${whatsAppNumber}`}
         className="flex h-16 flex-col items-center justify-center gap-1 text-emerald-600"
       >
         <MessageCircle className="h-5 w-5" />
-        WhatsApp
+        WhatsApp Us
       </a>
     </nav>
   );

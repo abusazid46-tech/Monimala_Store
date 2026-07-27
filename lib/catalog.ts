@@ -48,7 +48,7 @@ export const categories: Category[] = [
   }
 ];
 
-export const products: Product[] = [
+const baseProducts: Array<Omit<Product, "colors" | "sizes" | "colorImages" | "position">> = [
   {
     id: "p1",
     name: "Royal Jonbiri Bridal Necklace",
@@ -169,6 +169,14 @@ export const products: Product[] = [
     ]
   }
 ];
+
+export const products: Product[] = baseProducts.map((product, position) => ({
+  ...product,
+  colors: [],
+  sizes: [],
+  colorImages: {},
+  position
+}));
 
 export const reviews = [
   {

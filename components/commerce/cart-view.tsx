@@ -3,12 +3,12 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Minus, Plus, Trash2 } from "lucide-react";
-import { products } from "@/lib/catalog";
+import type { Product } from "@/lib/types";
 import { useCommerceStore } from "@/lib/store";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-export function CartView() {
+export function CartView({ products }: { products: Product[] }) {
   const cart = useCommerceStore((state) => state.cart);
   const updateQuantity = useCommerceStore((state) => state.updateQuantity);
   const removeFromCart = useCommerceStore((state) => state.removeFromCart);
@@ -41,10 +41,10 @@ export function CartView() {
     <div className="container grid gap-6 py-8 lg:grid-cols-[1fr_380px]">
       <div className="space-y-4">
         <h1 className="font-heading text-4xl text-maroon">Shopping Cart</h1>
-        {lines.map(({ product, quantity }) =>
+        {lines.map(({ product, quantity, color, size }) =>
           product ? (
             <div
-              key={product.id}
+              key={`${product.id}-${color || ""}-${size || ""}`}
               className="grid grid-cols-[88px_1fr] gap-4 rounded-lg border border-primary/10 bg-white p-3 shadow-sm"
             >
               <div className="relative aspect-square overflow-hidden rounded-md bg-cream">
@@ -57,11 +57,12 @@ export function CartView() {
                       {product.name}
                     </Link>
                     <p className="text-sm text-charcoal/60">{formatPrice(product.price)}</p>
+                    {color || size ? <p className="mt-1 text-xs font-medium text-charcoal/55">{[color && `Colour: ${color}`, size && `Size: ${size}`].filter(Boolean).join(" · ")}</p> : null}
                   </div>
                   <button
                     type="button"
                     aria-label="Remove item"
-                    onClick={() => removeFromCart(product.id)}
+                    onClick={() => removeFromCart(product.id, color, size)}
                     className="h-9 w-9 rounded-full text-charcoal/50 hover:bg-primary/10 hover:text-primary"
                   >
                     <Trash2 className="mx-auto h-4 w-4" />
@@ -71,7 +72,7 @@ export function CartView() {
                   <button
                     type="button"
                     aria-label="Decrease quantity"
-                    onClick={() => updateQuantity(product.id, quantity - 1)}
+                    onClick={() => updateQuantity(product.id, quantity - 1, color, size)}
                     className="rounded-full p-2 hover:bg-white"
                   >
                     <Minus className="h-3.5 w-3.5" />
@@ -80,7 +81,7 @@ export function CartView() {
                   <button
                     type="button"
                     aria-label="Increase quantity"
-                    onClick={() => updateQuantity(product.id, quantity + 1)}
+                    onClick={() => updateQuantity(product.id, quantity + 1, color, size)}
                     className="rounded-full p-2 hover:bg-white"
                   >
                     <Plus className="h-3.5 w-3.5" />

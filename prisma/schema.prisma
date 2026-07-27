@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -17,6 +17,8 @@ model User {
   orders       Order[]
   reviews      Review[]
   wishlist     WishlistItem[]
+  inventoryMovements InventoryMovement[] @relation("InventoryActor")
+  passwordResetTokens PasswordResetToken[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -28,6 +30,15 @@ model Category {
   description String?
   image       String?
   products    Product[]
+  parentId    String?
+  parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryTree")
+  active      Boolean   @default(true)
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([parentId])
 }
 
 model Product {
@@ -40,6 +51,9 @@ model Product {
   stock       Int      @default(0)
   sku         String   @unique
   images      String
+  colors      String?  @db.Text
+  sizes       String?  @db.Text
+  colorImages String?  @db.Text
   metal       String?
   occasion    String?
   isFeatured  Boolean  @default(false)
@@ -49,6 +63,10 @@ model Product {
   reviews     Review[]
   orderItems  OrderItem[]
   wishlist    WishlistItem[]
+  active      Boolean  @default(true)
+  position    Int      @default(0)
+  lowStockAt  Int      @default(5)
+  inventoryMovements InventoryMovement[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -66,6 +84,9 @@ model Order {
   razorpayOrderId   String?
   razorpayPaymentId String?
   items             OrderItem[]
+  paymentStatus     String      @default("UNPAID")
+  paymentMethod     String?
+  notes             String?     @db.Text
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 }
@@ -78,6 +99,8 @@ model OrderItem {
   product   Product @relation(fields: [productId], references: [id])
   quantity  Int
   price     Int
+  color     String?
+  size      String?
 }
 
 model Review {
@@ -109,4 +132,30 @@ model Coupon {
   percent   Int
   active    Boolean  @default(true)
   expiresAt DateTime?
+}
+
+model InventoryMovement {
+  id          String   @id @default(cuid())
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  actorId     String?
+  actor       User?    @relation("InventoryActor", fields: [actorId], references: [id])
+  quantity    Int
+  reason      String
+  reference   String?
+  createdAt   DateTime @default(now())
+
+  @@index([productId, createdAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
 }

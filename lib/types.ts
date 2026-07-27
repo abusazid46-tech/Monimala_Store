@@ -14,6 +14,10 @@ export type Product = {
   occasion: "Bridal" | "Festive" | "Daily" | "Heritage";
   metal: "Gold Finish" | "Gold Plated" | "Oxidised" | "Artificial";
   images: string[];
+  colors: string[];
+  sizes: string[];
+  colorImages: Record<string, string>;
+  position: number;
 };
 
 export type Category = {
@@ -21,9 +25,12 @@ export type Category = {
   slug: string;
   description: string;
   image: string;
+  position?: number;
 };
 
 export type CartLine = {
   productId: string;
   quantity: number;
+  color?: string;
+  size?: string;
 };

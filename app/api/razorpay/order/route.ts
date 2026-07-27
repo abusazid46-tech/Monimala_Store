@@ -3,8 +3,7 @@ import { z } from "zod";
 import { getRazorpay } from "@/lib/razorpay";
 
 const orderSchema = z.object({
-  amount: z.number().int().positive(),
-  receipt: z.string().optional()
+  orderId: z.string().min(1)
 });
 
 export async function POST(request: NextRequest) {
@@ -15,11 +14,15 @@ export async function POST(request: NextRequest) {
 
   try {
     const razorpay = getRazorpay();
+    const commerceOrder = await (await import("@/lib/db")).prisma.order.findUnique({ where: { id: parsed.data.orderId } });
+    if (!commerceOrder || commerceOrder.paymentStatus === "PAID") return NextResponse.json({ error: "Order is not payable." }, { status: 409 });
     const order = await razorpay.orders.create({
-      amount: parsed.data.amount * 100,
+      amount: commerceOrder.total * 100,
       currency: "INR",
-      receipt: parsed.data.receipt || `monimala_${Date.now()}`
+      receipt: commerceOrder.trackingCode,
+      notes: { commerceOrderId: commerceOrder.id }
     });
+    await (await import("@/lib/db")).prisma.order.update({ where: { id: commerceOrder.id }, data: { razorpayOrderId: order.id, paymentMethod: "RAZORPAY" } });
 
     return NextResponse.json({
       order,

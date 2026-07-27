@@ -1,33 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CheckCircle2, RotateCcw, ShieldCheck, Star, Truck } from "lucide-react";
-import { getProduct, products } from "@/lib/catalog";
-import { absoluteUrl, formatPrice } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
+import { getCatalogProduct, getCatalogProducts } from "@/lib/catalog-db";
+import { absoluteUrl } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { ProductGallery } from "@/components/commerce/gallery";
-import { ProductActions } from "@/components/commerce/product-actions";
 import { ProductCard } from "@/components/commerce/product-card";
+import { ProductPurchase } from "@/components/commerce/product-purchase";
 
 type ProductPageProps = {
   params: Promise<{ slug: string }>;
 };
 
-const deliveryNotes = [
-  { icon: Truck, text: "Free tracked shipping across India" },
-  { icon: ShieldCheck, text: "Razorpay secure payment gateway" },
-  { icon: RotateCcw, text: "Easy return support on eligible orders" },
-  { icon: CheckCircle2, text: "Quality checked before dispatch" }
-];
-
-export async function generateStaticParams() {
-  return products.map((product) => ({ slug: product.slug }));
-}
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const { slug } = await params;
-  const product = getProduct(slug);
+  const product = await getCatalogProduct(slug);
   if (!product) return {};
 
   return {
@@ -46,9 +34,10 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
 
 export default async function ProductPage({ params }: ProductPageProps) {
   const { slug } = await params;
-  const product = getProduct(slug);
+  const product = await getCatalogProduct(slug);
   if (!product) notFound();
 
+  const products = await getCatalogProducts();
   const related = products
     .filter((item) => item.category === product.category && item.id !== product.id)
     .concat(products.filter((item) => item.id !== product.id))
@@ -86,46 +75,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <div className="grid gap-8 lg:grid-cols-[1fr_0.9fr]">
-        <ProductGallery images={product.images} name={product.name} />
-        <div className="lg:sticky lg:top-28 lg:h-fit">
-          <Badge>{product.category}</Badge>
-          <h1 className="mt-4 font-heading text-4xl leading-tight text-maroon md:text-5xl">
-            {product.name}
-          </h1>
-          <div className="mt-3 flex items-center gap-2 text-sm">
-            <span className="flex items-center gap-1 text-gold-deep">
-              <Star className="h-4 w-4 fill-gold text-gold-deep" />
-              {product.rating}
-            </span>
-            <span className="text-charcoal/45">|</span>
-            <span className="text-charcoal/60">{product.reviews} reviews</span>
-            <span className="text-charcoal/45">|</span>
-            <span className="text-emerald-700">{product.stock} in stock</span>
-          </div>
-          <div className="mt-5 flex items-end gap-3">
-            <p className="text-3xl font-bold text-maroon">{formatPrice(product.price)}</p>
-            {product.compareAt ? (
-              <p className="pb-1 text-lg text-charcoal/40 line-through">
-                {formatPrice(product.compareAt)}
-              </p>
-            ) : null}
-          </div>
-          <p className="mt-5 leading-7 text-charcoal/68">{product.description}</p>
-          <div className="mt-6">
-            <ProductActions product={product} />
-          </div>
-
-          <div className="mt-6 grid gap-3 rounded-lg border border-primary/10 bg-white p-4 text-sm">
-            {deliveryNotes.map(({ icon: Icon, text }) => (
-              <div key={text} className="flex items-center gap-3">
-                <Icon className="h-5 w-5 text-gold-deep" />
-                <span>{text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      <ProductPurchase product={product} />
 
       <section className="mt-12 grid gap-4 md:grid-cols-3">
         {[

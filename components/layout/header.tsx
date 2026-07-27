@@ -1,43 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
 import {
-  Grid2X2,
-  Heart,
   Menu,
-  Search,
   ShoppingBag,
-  UserRound,
-  X
+  UserRound
 } from "lucide-react";
-import { categories, products } from "@/lib/catalog";
+import { categories } from "@/lib/catalog";
 import { useCommerceStore } from "@/lib/store";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { PremiumSearch } from "@/components/commerce/premium-search";
 
 export function Header() {
-  const [query, setQuery] = useState("");
   const cartCount = useCommerceStore((state) =>
     state.cart.reduce((sum, line) => sum + line.quantity, 0)
   );
-  const wishlistCount = useCommerceStore((state) => state.wishlist.length);
-
-  const results = useMemo(() => {
-    if (query.trim().length < 2) return [];
-    return products
-      .filter((product) =>
-        [product.name, product.category].join(" ").toLowerCase().includes(query.toLowerCase())
-      )
-      .slice(0, 4);
-  }, [query]);
-
   return (
     <header className="sticky top-0 z-40 border-b border-primary/10 bg-cream/92 backdrop-blur-xl">
-      <div className="bg-primary px-4 py-2 text-center text-xs font-semibold text-cream sm:text-sm">
-        Pan India delivery | 4.8 star rated | Easy WhatsApp support | Festive drops live
-      </div>
       <div className="container flex h-16 items-center gap-3">
         <Sheet>
           <SheetTrigger asChild>
@@ -80,53 +60,16 @@ export function Header() {
           <Link href="/products">Shop</Link>
           <Link href="/products?category=bridal">Bridal</Link>
           <Link href="/products?category=jonbiri">Jonbiri</Link>
-          <Link href="/admin">Admin</Link>
         </nav>
 
         <div className="relative ml-auto hidden max-w-md flex-1 md:block">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-charcoal/45" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search Assamese jewellery"
-            className="pl-9 pr-10"
-          />
-          {query ? (
-            <button
-              type="button"
-              onClick={() => setQuery("")}
-              aria-label="Clear search"
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-charcoal/45 hover:bg-primary/10"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
-          {results.length ? (
-            <div className="absolute left-0 right-0 top-12 rounded-lg border border-primary/10 bg-white p-2 shadow-luxury">
-              {results.map((product) => (
-                <Link
-                  key={product.id}
-                  href={`/products/${product.slug}`}
-                  onClick={() => setQuery("")}
-                  className="block rounded-md px-3 py-2 text-sm hover:bg-cream"
-                >
-                  {product.name}
-                </Link>
-              ))}
-            </div>
-          ) : null}
+          <PremiumSearch />
         </div>
 
         <div className="ml-auto flex items-center gap-1 md:ml-0">
-          <Button asChild size="icon" variant="ghost" aria-label="Categories">
-            <Link href="/products">
-              <Grid2X2 className="h-5 w-5" />
-            </Link>
-          </Button>
-          <Button asChild size="icon" variant="ghost" aria-label="Wishlist">
-            <Link href="/account" className="relative">
-              <Heart className="h-5 w-5" />
-              {wishlistCount ? <Counter count={wishlistCount} /> : null}
+          <Button asChild size="icon" variant="ghost" aria-label="Account">
+            <Link href="/account">
+              <UserRound className="h-5 w-5" />
             </Link>
           </Button>
           <Button asChild size="icon" variant="ghost" aria-label="Cart">
@@ -135,21 +78,10 @@ export function Header() {
               {cartCount ? <Counter count={cartCount} /> : null}
             </Link>
           </Button>
-          <Button asChild size="icon" variant="ghost" aria-label="Account">
-            <Link href="/account">
-              <UserRound className="h-5 w-5" />
-            </Link>
-          </Button>
         </div>
       </div>
       <div className="container pb-3 md:hidden">
-        <Link
-          href="/products"
-          className="flex h-12 items-center gap-3 rounded-full bg-white px-4 text-charcoal/55 shadow-sm"
-        >
-          <Search className="h-5 w-5" />
-          <span>What are you looking for?</span>
-        </Link>
+        <PremiumSearch mobile />
       </div>
     </header>
   );

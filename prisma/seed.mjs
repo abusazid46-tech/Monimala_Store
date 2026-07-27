@@ -12,6 +12,9 @@ const categories = [
   ["Lokaparo", "lokaparo"]
 ];
 
+const adminEmail = (process.env.SEED_ADMIN_EMAIL || "").trim().toLowerCase();
+const adminPassword = process.env.SEED_ADMIN_PASSWORD || "";
+
 const products = [
   ["p1", "Royal Jonbiri Bridal Necklace", "royal-jonbiri-bridal-necklace", "Jonbiri", 5499, 6999, 14, true, false],
   ["p2", "Gamkharu Heritage Bangle Pair", "gamkharu-heritage-bangle-pair", "Gamkharu", 3299, 3999, 21, true, false],
@@ -71,16 +74,16 @@ async function main() {
     });
   }
 
-  await prisma.user.upsert({
-    where: { email: "admin@monimalastore.com" },
-    update: {},
-    create: {
-      name: "Monimala Admin",
-      email: "admin@monimalastore.com",
-      passwordHash: await bcrypt.hash("Admin@12345", 12),
-      role: "ADMIN"
-    }
-  });
+  if (adminEmail && adminPassword) {
+    if (adminPassword.length < 12) throw new Error("SEED_ADMIN_PASSWORD must be at least 12 characters.");
+    await prisma.user.upsert({
+      where: { email: adminEmail },
+      update: { role: "ADMIN" },
+      create: { name: process.env.SEED_ADMIN_NAME || "Monimala Admin", email: adminEmail, passwordHash: await bcrypt.hash(adminPassword, 12), role: "ADMIN" }
+    });
+  } else {
+    console.warn("Admin not seeded. Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD explicitly.");
+  }
 
   await prisma.coupon.upsert({
     where: { code: "BIHU10" },

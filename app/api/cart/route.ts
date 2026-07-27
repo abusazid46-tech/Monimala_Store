@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { products } from "@/lib/catalog";
+import { prisma } from "@/lib/db";
 
 const cartSchema = z.object({
   items: z.array(
     z.object({
       productId: z.string(),
-      quantity: z.number().int().positive()
+      quantity: z.number().int().positive(),
+      color: z.string().optional(),
+      size: z.string().optional()
     })
   )
 });
@@ -18,17 +20,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid cart." }, { status: 400 });
   }
 
-  const lines = parsed.data.items
-    .map((item) => {
-      const product = products.find((candidate) => candidate.id === item.productId);
-      if (!product) return null;
-      return {
-        product,
-        quantity: item.quantity,
-        subtotal: product.price * item.quantity
-      };
-    })
-    .filter(Boolean);
+  const quantities = new Map(parsed.data.items.map((item) => [item.productId, item.quantity]));
+  const products = await prisma.product.findMany({ where: { id: { in: [...quantities.keys()] }, active: true } });
+  const lines = products.map((product) => ({ product: { ...product, images: JSON.parse(product.images) }, quantity: quantities.get(product.id)!, subtotal: product.price * quantities.get(product.id)! }));
 
   const subtotal = lines.reduce((sum, line) => sum + (line?.subtotal || 0), 0);
 

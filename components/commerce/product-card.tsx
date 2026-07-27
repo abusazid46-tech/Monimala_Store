@@ -76,6 +76,10 @@ export function ProductCard({ product }: { product: Product }) {
               size="icon"
               aria-label="Add to cart"
               onClick={() => {
+                if (product.colors.length || product.sizes.length) {
+                  window.location.href = `/products/${product.slug}`;
+                  return;
+                }
                 addToCart(product.id);
                 toast.success("Added to cart");
               }}

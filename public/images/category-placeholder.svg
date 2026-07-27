@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" role="img" aria-label="Jewellery category">
+  <rect width="320" height="240" fill="#fff"/>
+  <circle cx="160" cy="116" r="70" fill="#fff8f0" stroke="#d4af37" stroke-width="4"/>
+  <path d="M111 92c9 51 34 79 49 79s40-28 49-79" fill="none" stroke="#8b1730" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="160" cy="175" r="15" fill="#d4af37"/>
+  <path d="m160 160-14-18 14-17 14 17Z" fill="#a61d2d"/>
+  <circle cx="113" cy="89" r="8" fill="#d4af37"/>
+  <circle cx="207" cy="89" r="8" fill="#d4af37"/>
+</svg>

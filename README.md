@@ -27,12 +27,8 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-Demo admin account after seed:
-
-```text
-admin@monimalastore.com
-Admin@12345
-```
+The seed creates an administrator only when `SEED_ADMIN_EMAIL` and
+`SEED_ADMIN_PASSWORD` are explicitly configured. No public default password is used.
 
 ## Environment
 
@@ -46,6 +42,9 @@ NEXT_PUBLIC_WHATSAPP_NUMBER="91XXXXXXXXXX"
 RAZORPAY_KEY_ID="rzp_live_xxxxx"
 RAZORPAY_KEY_SECRET="xxxxx"
 RAZORPAY_WEBHOOK_SECRET="xxxxx"
+SEED_ADMIN_NAME="Store Owner"
+SEED_ADMIN_EMAIL="owner@your-domain.com"
+SEED_ADMIN_PASSWORD="use-a-unique-16-plus-character-password"
 ```
 
 ## Deployment

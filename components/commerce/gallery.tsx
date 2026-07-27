@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ export function ProductGallery({
   name: string;
 }) {
   const [active, setActive] = useState(images[0]);
+  useEffect(() => setActive(images[0]), [images]);
 
   return (
     <div className="space-y-3">

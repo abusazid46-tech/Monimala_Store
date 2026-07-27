@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SearchFilters } from "@/components/commerce/search-filters";
+import { getCatalogProducts } from "@/lib/catalog-db";
 
 export const metadata: Metadata = {
   title: "Shop Assamese Jewellery",
@@ -7,7 +8,15 @@ export const metadata: Metadata = {
     "Search and filter Monimala Store products including Jonbiri, Gamkharu, Lokaparo, necklaces and bridal jewellery."
 };
 
-export default function ProductsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function ProductsPage({
+  searchParams
+}: {
+  searchParams: Promise<{ q?: string; category?: string }>;
+}) {
+  const filters = await searchParams;
+  const products = await getCatalogProducts();
   return (
     <div className="container py-8">
       <div className="mb-6">
@@ -22,7 +31,7 @@ export default function ProductsPage() {
           wishlist saves and WhatsApp support.
         </p>
       </div>
-      <SearchFilters />
+      <SearchFilters products={products} initialQuery={filters.q || ""} initialCategory={filters.category || ""} />
     </div>
   );
 }

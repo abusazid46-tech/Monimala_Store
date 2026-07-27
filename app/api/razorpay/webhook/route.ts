@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
       where: { razorpayOrderId: payment.order_id },
       data: {
         status: "PAID",
+        paymentStatus: "PAID",
         razorpayPaymentId: payment.id
       }
     });

@@ -1,0 +1,5 @@
+"use client";
+import { FormEvent, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+export default function ForgotPasswordPage(){const[message,setMessage]=useState("");async function submit(e:FormEvent<HTMLFormElement>){e.preventDefault();const email=new FormData(e.currentTarget).get("email");const r=await fetch('/api/auth/forgot-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});setMessage((await r.json()).message)}return <div className="container grid min-h-[60vh] place-items-center py-10"><form onSubmit={submit} className="w-full max-w-md rounded-lg bg-white p-6 shadow-luxury"><h1 className="font-heading text-4xl text-maroon">Reset password</h1><p className="my-4 text-sm text-charcoal/65">Enter your customer email. We will send a secure link if an account exists.</p><Input name="email" type="email" required placeholder="Email address"/><Button className="mt-3 w-full">Send reset link</Button>{message&&<p className="mt-4 rounded-lg bg-cream p-3 text-sm">{message}</p>}</form></div>}

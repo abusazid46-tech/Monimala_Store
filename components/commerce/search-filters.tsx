@@ -2,20 +2,22 @@
 
 import { useMemo, useState } from "react";
 import { Search, SlidersHorizontal } from "lucide-react";
-import { products } from "@/lib/catalog";
+import type { Product } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { ProductCard } from "@/components/commerce/product-card";
 
-export function SearchFilters() {
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("All");
+export function SearchFilters({ products, initialQuery = "", initialCategory = "" }: { products: Product[]; initialQuery?: string; initialCategory?: string }) {
+  const [query, setQuery] = useState(initialQuery);
+  const matchingCategory = products.find((product) => product.category.toLowerCase().replaceAll(" ", "-") === initialCategory)?.category;
+  const [category, setCategory] = useState(matchingCategory || "All");
   const [occasion, setOccasion] = useState("All");
+  const [sort, setSort] = useState("ranking");
 
   const categories = ["All", ...Array.from(new Set(products.map((p) => p.category)))];
   const occasions = ["All", "Bridal", "Festive", "Heritage", "Daily"];
 
   const filtered = useMemo(() => {
-    return products.filter((product) => {
+    const matches = products.filter((product) => {
       const matchesQuery = [product.name, product.category, product.description]
         .join(" ")
         .toLowerCase()
@@ -24,7 +26,11 @@ export function SearchFilters() {
       const matchesOccasion = occasion === "All" || product.occasion === occasion;
       return matchesQuery && matchesCategory && matchesOccasion;
     });
-  }, [category, occasion, query]);
+    if (sort === "price-asc") return matches.sort((a, b) => a.price - b.price);
+    if (sort === "price-desc") return matches.sort((a, b) => b.price - a.price);
+    if (sort === "newest") return matches.sort((a, b) => Number(Boolean(b.isNew)) - Number(Boolean(a.isNew)));
+    return matches.sort((a, b) => a.position - b.position);
+  }, [category, occasion, products, query, sort]);
 
   return (
     <div className="space-y-5">
@@ -40,6 +46,17 @@ export function SearchFilters() {
             />
           </div>
           <SlidersHorizontal className="h-5 w-5 text-maroon" />
+          <select
+            value={sort}
+            onChange={(event) => setSort(event.target.value)}
+            aria-label="Sort products"
+            className="h-10 rounded-full border border-primary/15 bg-white px-3 text-xs font-semibold outline-none"
+          >
+            <option value="ranking">Recommended</option>
+            <option value="price-asc">Price: Low to High</option>
+            <option value="price-desc">Price: High to Low</option>
+            <option value="newest">Newest First</option>
+          </select>
         </div>
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
           {categories.map((item) => (
