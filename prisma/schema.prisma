@@ -50,7 +50,7 @@ model Product {
   compareAt   Int?
   stock       Int      @default(0)
   sku         String   @unique
-  images      String
+  images      String   @db.Text
   colors      String?  @db.Text
   sizes       String?  @db.Text
   colorImages String?  @db.Text
