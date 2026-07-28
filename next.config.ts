@@ -15,6 +15,10 @@ const nextConfig: NextConfig = {
       {
         protocol: "https",
         hostname: "backend.monimal.com"
+      },
+      {
+        protocol: "https",
+        hostname: "lightskyblue-swan-841286.hostingersite.com"
       }
     ]
   },
