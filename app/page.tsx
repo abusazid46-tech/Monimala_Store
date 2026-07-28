@@ -1,11 +1,16 @@
 import Image from "next/image";
 import Link from "next/link";
-import { getCatalogCategories } from "@/lib/catalog-db";
+import { ArrowRight } from "lucide-react";
+import { ProductCard } from "@/components/commerce/product-card";
+import { getBestSellingProducts, getCatalogCategories } from "@/lib/catalog-db";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const categories = await getCatalogCategories();
+  const [categories, bestSellers] = await Promise.all([
+    getCatalogCategories(),
+    getBestSellingProducts(8)
+  ]);
 
   return (
     <main className="container py-5 sm:py-8">
@@ -34,6 +39,35 @@ export default async function HomePage() {
             </span>
           </Link>
         ))}
+      </section>
+
+      <section aria-labelledby="best-sellers-title" className="py-10 sm:py-14">
+        <div className="mb-5 flex items-end justify-between gap-4 sm:mb-7">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gold-deep">
+              Most loved
+            </p>
+            <h2
+              id="best-sellers-title"
+              className="mt-1 font-heading text-3xl text-maroon sm:text-4xl"
+            >
+              Best Sellers
+            </h2>
+          </div>
+          <Link
+            href="/products?sort=recommended"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-maroon hover:text-primary"
+          >
+            View all
+            <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-4">
+          {bestSellers.map((product) => (
+            <ProductCard key={product.id} product={product} />
+          ))}
+        </div>
       </section>
     </main>
   );

@@ -62,3 +62,49 @@ export async function getCatalogCategories(): Promise<Category[]> {
       position: row.position
     }));
 }
+
+export async function getBestSellingProducts(limit = 8): Promise<Product[]> {
+  const take = Math.min(Math.max(limit, 1), 12);
+  const sales = await prisma.orderItem.groupBy({
+    by: ["productId"],
+    where: {
+      order: {
+        paymentStatus: "PAID",
+        status: { not: "CANCELLED" }
+      },
+      product: { active: true }
+    },
+    _sum: { quantity: true },
+    orderBy: { _sum: { quantity: "desc" } },
+    take
+  });
+
+  const rankedIds = sales.map((sale) => sale.productId);
+  const rankedRows = rankedIds.length
+    ? await prisma.product.findMany({
+        where: { id: { in: rankedIds }, active: true },
+        include: { category: true }
+      })
+    : [];
+  const rankedById = new Map(rankedRows.map((product) => [product.id, product]));
+  const ranked = rankedIds
+    .map((id) => rankedById.get(id))
+    .filter((product): product is NonNullable<typeof product> => Boolean(product));
+
+  const fallback = await prisma.product.findMany({
+    where: {
+      active: true,
+      ...(rankedIds.length ? { id: { notIn: rankedIds } } : {})
+    },
+    include: { category: true },
+    orderBy: [
+      { isFeatured: "desc" },
+      { isNew: "desc" },
+      { position: "asc" },
+      { createdAt: "desc" }
+    ],
+    take: take - ranked.length
+  });
+
+  return [...ranked, ...fallback].map(productView);
+}
