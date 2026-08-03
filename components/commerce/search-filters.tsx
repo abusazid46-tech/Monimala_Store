@@ -10,11 +10,9 @@ export function SearchFilters({ products, initialQuery = "", initialCategory = "
   const [query, setQuery] = useState(initialQuery);
   const matchingCategory = products.find((product) => product.category.toLowerCase().replaceAll(" ", "-") === initialCategory)?.category;
   const [category, setCategory] = useState(matchingCategory || "All");
-  const [occasion, setOccasion] = useState("All");
   const [sort, setSort] = useState("ranking");
 
   const categories = ["All", ...Array.from(new Set(products.map((p) => p.category)))];
-  const occasions = ["All", "Bridal", "Festive", "Heritage", "Daily"];
 
   const filtered = useMemo(() => {
     const matches = products.filter((product) => {
@@ -23,14 +21,13 @@ export function SearchFilters({ products, initialQuery = "", initialCategory = "
         .toLowerCase()
         .includes(query.toLowerCase());
       const matchesCategory = category === "All" || product.category === category;
-      const matchesOccasion = occasion === "All" || product.occasion === occasion;
-      return matchesQuery && matchesCategory && matchesOccasion;
+      return matchesQuery && matchesCategory;
     });
     if (sort === "price-asc") return matches.sort((a, b) => a.price - b.price);
     if (sort === "price-desc") return matches.sort((a, b) => b.price - a.price);
     if (sort === "newest") return matches.sort((a, b) => Number(Boolean(b.isNew)) - Number(Boolean(a.isNew)));
     return matches.sort((a, b) => a.position - b.position);
-  }, [category, occasion, products, query, sort]);
+  }, [category, products, query, sort]);
 
   return (
     <div className="space-y-5">
@@ -67,22 +64,6 @@ export function SearchFilters({ products, initialQuery = "", initialCategory = "
               className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${
                 category === item
                   ? "border-primary bg-primary text-white"
-                  : "border-primary/15 bg-white text-charcoal"
-              }`}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-        <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-          {occasions.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setOccasion(item)}
-              className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                occasion === item
-                  ? "border-gold bg-gold text-charcoal"
                   : "border-primary/15 bg-white text-charcoal"
               }`}
             >

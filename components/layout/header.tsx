@@ -58,8 +58,8 @@ export function Header() {
 
         <nav className="hidden items-center gap-5 text-sm font-medium text-charcoal/75 lg:flex">
           <Link href="/products">Shop</Link>
-          <Link href="/products?category=bridal">Bridal</Link>
-          <Link href="/products?category=jonbiri">Jonbiri</Link>
+          <Link href="/products?category=assamese-jewellery">Assamese Jewellery</Link>
+          <Link href="/products?category=earrings">Earrings</Link>
         </nav>
 
         <div className="relative ml-auto hidden max-w-md flex-1 md:block">

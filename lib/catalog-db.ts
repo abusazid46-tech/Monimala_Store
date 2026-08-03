@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { unstable_cache } from "next/cache";
 import type { Category, Product } from "@/lib/types";
 
 function images(value: string): string[] {
@@ -34,7 +35,8 @@ function productView(product: Awaited<ReturnType<typeof prisma.product.findFirst
     occasion: (product.occasion || "Heritage") as Product["occasion"],
     metal: (product.metal || "Gold Finish") as Product["metal"], images: images(product.images),
     colors: stringList(product.colors), sizes: stringList(product.sizes),
-    colorImages: imageMap(product.colorImages), position: product.position
+    colorImages: imageMap(product.colorImages), youtubeUrl: product.youtubeUrl || undefined,
+    position: product.position
   };
 }
 
@@ -48,7 +50,7 @@ export async function getCatalogProduct(slug: string): Promise<Product | null> {
   return row ? productView(row) : null;
 }
 
-export async function getCatalogCategories(): Promise<Category[]> {
+const getCachedCategories = unstable_cache(async (): Promise<Category[]> => {
   const rows = await prisma.category.findMany({
     where: { active: true, parentId: null },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }]
@@ -61,6 +63,10 @@ export async function getCatalogCategories(): Promise<Category[]> {
       image: row.image || "/images/category-placeholder.svg",
       position: row.position
     }));
+}, ["storefront-categories"], { revalidate: 60, tags: ["categories"] });
+
+export async function getCatalogCategories(): Promise<Category[]> {
+  return getCachedCategories();
 }
 
 export async function getBestSellingProducts(limit = 8): Promise<Product[]> {

@@ -5,47 +5,26 @@ const imageBase =
 
 export const categories: Category[] = [
   {
-    name: "Traditional Necklaces",
-    slug: "necklaces",
-    description: "Layered statement pieces for mekhela sador and bridal looks.",
-    image:
-      "https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&w=900&q=85"
+    name: "Assamese Jewellery", slug: "assamese-jewellery", description: "Traditional Assamese designs.", image: "/images/category-placeholder.svg"
   },
   {
-    name: "Earrings",
-    slug: "earrings",
-    description: "Lokaparo, floral and temple-inspired accents.",
-    image:
-      "https://images.unsplash.com/photo-1630019852942-f89202989a59?auto=format&fit=crop&w=900&q=85"
+    name: "AD Jewellery", slug: "ad-jewellery", description: "Contemporary AD jewellery.", image: "/images/category-placeholder.svg"
   },
   {
-    name: "Bridal Collection",
-    slug: "bridal",
-    description: "Curated heirloom-style sets for Assamese weddings.",
-    image:
-      "https://images.unsplash.com/photo-1606760227091-3dd870d97f1d?auto=format&fit=crop&w=900&q=85"
+    name: "Finger Rings", slug: "finger-rings", description: "Statement and everyday rings.", image: "/images/category-placeholder.svg"
   },
   {
-    name: "Jonbiri",
-    slug: "jonbiri",
-    description: "Moon-shaped elegance inspired by Assamese heritage.",
-    image:
-      "https://images.unsplash.com/photo-1617038260897-41a1f14a8ca0?auto=format&fit=crop&w=900&q=85"
+    name: "Hair Accessories", slug: "hair-accessories", description: "Premium hair accessories.", image: "/images/category-placeholder.svg"
   },
   {
-    name: "Gamkharu",
-    slug: "gamkharu",
-    description: "Bold bangles with ceremonial presence.",
-    image:
-      "https://images.unsplash.com/photo-1603974372039-adc49044b6bd?auto=format&fit=crop&w=900&q=85"
+    name: "Bangles", slug: "bangles", description: "Bangles in multiple sizes.", image: "/images/category-placeholder.svg"
   },
   {
-    name: "Lokaparo",
-    slug: "lokaparo",
-    description: "Beloved bird-motif jewellery for festive styling.",
-    image:
-      "https://images.unsplash.com/photo-1615655096345-61a54750068d?auto=format&fit=crop&w=900&q=85"
-  }
+    name: "Pendant Set", slug: "pendant-set", description: "Pendant and earrings sets.", image: "/images/category-placeholder.svg"
+  },
+  { name: "Nails", slug: "nails", description: "Press-on nail collections.", image: "/images/category-placeholder.svg" },
+  { name: "Earrings", slug: "earrings", description: "Earrings in premium finishes.", image: "/images/category-placeholder.svg" },
+  { name: "Gold Plated Jewellery", slug: "gold-plated-jewellery", description: "Gold-plated statement jewellery.", image: "/images/category-placeholder.svg" }
 ];
 
 const baseProducts: Array<Omit<Product, "colors" | "sizes" | "colorImages" | "position">> = [

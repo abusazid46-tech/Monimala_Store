@@ -37,7 +37,7 @@ export function ProductPurchase({ product }: { product: Product }) {
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_0.9fr]">
-      <ProductGallery images={gallery} name={product.name} />
+      <ProductGallery images={gallery} name={product.name} youtubeUrl={product.youtubeUrl} />
       <div className="lg:sticky lg:top-28 lg:h-fit">
         <Badge>{product.category}</Badge>
         <h1 className="mt-4 font-heading text-4xl leading-tight text-maroon md:text-5xl">{product.name}</h1>

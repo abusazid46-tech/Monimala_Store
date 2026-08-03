@@ -54,6 +54,7 @@ model Product {
   colors      String?  @db.Text
   sizes       String?  @db.Text
   colorImages String?  @db.Text
+  youtubeUrl  String?
   metal       String?
   occasion    String?
   isFeatured  Boolean  @default(false)

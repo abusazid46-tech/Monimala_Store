@@ -2,16 +2,22 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Minus, Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { CheckCircle2, Minus, Plus, Trash2 } from "lucide-react";
 import type { Product } from "@/lib/types";
 import { useCommerceStore } from "@/lib/store";
 import { formatPrice } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export function CartView({ products }: { products: Product[] }) {
   const cart = useCommerceStore((state) => state.cart);
   const updateQuantity = useCommerceStore((state) => state.updateQuantity);
   const removeFromCart = useCommerceStore((state) => state.removeFromCart);
+  const clearCart = useCommerceStore((state) => state.clearCart);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [trackingCode, setTrackingCode] = useState("");
   const lines = cart
     .map((line) => ({
       ...line,
@@ -22,6 +28,37 @@ export function CartView({ products }: { products: Product[] }) {
     (sum, line) => sum + (line.product?.price || 0) * line.quantity,
     0
   );
+
+  async function placeOrder(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    const form = new FormData(event.currentTarget);
+    try {
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.get("email"),
+          phone: form.get("phone"),
+          address: form.get("address"),
+          items: lines.map(({ productId, quantity, color, size }) => ({ productId, quantity, color, size }))
+        })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to place your order.");
+      setTrackingCode(result.order.trackingCode);
+      clearCart();
+    } catch (orderError) {
+      setError(orderError instanceof Error ? orderError.message : "Unable to place your order.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (trackingCode) {
+    return <div className="container flex min-h-[60vh] items-center justify-center py-10"><section className="max-w-xl rounded-3xl border border-emerald-200 bg-white p-8 text-center shadow-luxury"><CheckCircle2 className="mx-auto h-14 w-14 text-emerald-600" /><h1 className="mt-5 font-heading text-4xl text-maroon">Thank you for your order</h1><p className="mt-4 leading-7 text-charcoal/70">Thank you for your order with Monimala. Our representative will contact you for confirmation of your order.</p><p className="mt-4 rounded-full bg-cream px-4 py-2 text-sm font-semibold text-maroon">Order reference: {trackingCode}</p><Button asChild className="mt-6"><Link href="/products">Continue shopping</Link></Button></section></div>;
+  }
 
   if (!lines.length) {
     return (
@@ -108,9 +145,14 @@ export function CartView({ products }: { products: Product[] }) {
             <span>{formatPrice(total)}</span>
           </div>
         </div>
-        <Button className="mt-5 w-full" variant="gold">
-          Continue to secure checkout
-        </Button>
+        <form className="mt-5 grid gap-3" onSubmit={placeOrder}>
+          <h3 className="font-semibold text-maroon">Delivery details</h3>
+          <Input name="email" type="email" placeholder="Email address" required />
+          <Input name="phone" type="tel" placeholder="Phone number" minLength={8} required />
+          <textarea name="address" placeholder="Complete delivery address" minLength={10} required className="min-h-24 rounded-2xl border border-primary/10 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-gold" />
+          {error ? <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+          <Button className="w-full" variant="gold" disabled={busy}>{busy ? "Placing order…" : "Place order"}</Button>
+        </form>
       </aside>
     </div>
   );

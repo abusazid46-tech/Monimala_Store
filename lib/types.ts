@@ -11,8 +11,9 @@ export type Product = {
   stock: number;
   isFeatured?: boolean;
   isNew?: boolean;
-  occasion: "Bridal" | "Festive" | "Daily" | "Heritage";
-  metal: "Gold Finish" | "Gold Plated" | "Oxidised" | "Artificial";
+  occasion: string;
+  metal: string;
+  youtubeUrl?: string;
   images: string[];
   colors: string[];
   sizes: string[];
