@@ -19,7 +19,8 @@ const createOrderSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const parsed = createOrderSchema.safeParse(await request.json());
+  const payload = await request.json().catch(() => null);
+  const parsed = createOrderSchema.safeParse(payload);
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid order." }, { status: 400 });
   }
@@ -27,7 +28,8 @@ export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!parsed.data.items.length) return NextResponse.json({ error: "Cart is empty." }, { status: 400 });
   const productIds = [...new Set(parsed.data.items.map((item) => item.productId))];
-  const order = await prisma.$transaction(async (tx) => {
+  try {
+    const order = await prisma.$transaction(async (tx) => {
     const catalog = await tx.product.findMany({ where: { id: { in: productIds }, active: true } });
     if (catalog.length !== productIds.length) throw new Error("One or more products are unavailable.");
     const catalogById = new Map(catalog.map((product) => [product.id, product]));
@@ -41,9 +43,15 @@ export async function POST(request: NextRequest) {
       data: { trackingCode: makeTrackingCode(), userId: session?.id, email: parsed.data.email, phone: parsed.data.phone, address: parsed.data.address, total: lines.reduce((sum, line) => sum + line.price * line.quantity, 0), items: { create: lines } },
       include: { items: true }
     });
-  });
+    });
 
-  return NextResponse.json({ order }, { status: 201 });
+    return NextResponse.json({ order }, { status: 201 });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unable to place this order." },
+      { status: 409 }
+    );
+  }
 }
 
 export async function GET(request: NextRequest) {
