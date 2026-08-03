@@ -40,7 +40,7 @@ export function ProductPurchase({ product }: { product: Product }) {
       <ProductGallery images={gallery} name={product.name} youtubeUrl={product.youtubeUrl} />
       <div className="lg:sticky lg:top-28 lg:h-fit">
         <Badge>{product.category}</Badge>
-        <h1 className="mt-4 font-heading text-4xl leading-tight text-maroon md:text-5xl">{product.name}</h1>
+        <h1 className="mt-4 font-heading text-3xl leading-tight text-maroon md:text-4xl">{product.name}</h1>
         <div className="mt-3 flex items-center gap-2 text-sm">
           <span className="flex items-center gap-1 text-gold-deep"><Star className="h-4 w-4 fill-gold text-gold-deep" />{product.rating}</span>
           <span className="text-charcoal/45">|</span>
@@ -90,6 +90,17 @@ export function ProductPurchase({ product }: { product: Product }) {
         <div className="mt-6 grid gap-3 rounded-lg border border-primary/10 bg-white p-4 text-sm">
           {deliveryNotes.map(({ icon: Icon, text }) => <div key={text} className="flex items-center gap-3"><Icon className="h-5 w-5 text-gold-deep" /><span>{text}</span></div>)}
         </div>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-[65px] z-50 grid grid-cols-2 gap-2 border-t border-primary/10 bg-white/95 p-3 shadow-[0_-12px_30px_rgba(0,0,0,0.12)] backdrop-blur-lg lg:hidden">
+        <Button onClick={add} className="h-12 rounded-xl">
+          <ShoppingBag className="h-5 w-5" />Add to cart
+        </Button>
+        <Button variant="outline" className="h-12 rounded-xl border-emerald-600 text-emerald-700 hover:bg-emerald-50" asChild>
+          <a href={`https://wa.me/${whatsAppNumber}?text=${encodeURIComponent(`Hi Monimala Store, I want to know more about ${product.name}${color ? ` in ${color}` : ""}${size ? `, size ${size}` : ""}.`)}`} target="_blank" rel="noreferrer">
+            <MessageCircle className="h-5 w-5" />WhatsApp enquiry
+          </a>
+        </Button>
       </div>
     </div>
   );
