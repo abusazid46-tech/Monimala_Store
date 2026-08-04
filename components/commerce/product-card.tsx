@@ -3,7 +3,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Heart, ShoppingBag, Star } from "lucide-react";
-import { motion } from "framer-motion";
 import { toast } from "sonner";
 import type { Product } from "@/lib/types";
 import { formatPrice } from "@/lib/utils";
@@ -17,19 +16,14 @@ export function ProductCard({ product }: { product: Product }) {
   const wished = wishlist.includes(product.id);
 
   return (
-    <motion.article
-      initial={{ opacity: 0, y: 18 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-80px" }}
-      transition={{ duration: 0.45 }}
-      className="group overflow-hidden rounded-lg border border-primary/10 bg-white shadow-sm"
-    >
+    <article className="group overflow-hidden rounded-lg border border-primary/10 bg-white shadow-sm">
       <Link href={`/products/${product.slug}`} className="block">
         <div className="relative aspect-[4/5] overflow-hidden bg-cream">
           <Image
             src={product.images[0]}
             alt={product.name}
             fill
+            unoptimized
             sizes="(max-width: 768px) 50vw, 25vw"
             className="object-cover transition duration-700 group-hover:scale-105"
           />
@@ -89,6 +83,6 @@ export function ProductCard({ product }: { product: Product }) {
           </div>
         </div>
       </div>
-    </motion.article>
+    </article>
   );
 }

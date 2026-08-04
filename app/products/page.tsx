@@ -8,7 +8,7 @@ export const metadata: Metadata = {
     "Search and filter Monimala Store products including Jonbiri, Gamkharu, Lokaparo, necklaces and bridal jewellery."
 };
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export default async function ProductsPage({
   searchParams

@@ -40,14 +40,22 @@ function productView(product: Awaited<ReturnType<typeof prisma.product.findFirst
   };
 }
 
-export async function getCatalogProducts(): Promise<Product[]> {
+const getCachedProducts = unstable_cache(async (): Promise<Product[]> => {
   const rows = await prisma.product.findMany({ where: { active: true }, include: { category: true }, orderBy: [{ position: "asc" }, { createdAt: "desc" }] });
   return rows.map(productView);
+}, ["storefront-products"], { revalidate: 60, tags: ["products"] });
+
+const getCachedProduct = unstable_cache(async (slug: string): Promise<Product | null> => {
+  const row = await prisma.product.findFirst({ where: { slug, active: true }, include: { category: true } });
+  return row ? productView(row) : null;
+}, ["storefront-product"], { revalidate: 60, tags: ["products"] });
+
+export async function getCatalogProducts(): Promise<Product[]> {
+  return getCachedProducts();
 }
 
 export async function getCatalogProduct(slug: string): Promise<Product | null> {
-  const row = await prisma.product.findFirst({ where: { slug, active: true }, include: { category: true } });
-  return row ? productView(row) : null;
+  return getCachedProduct(slug);
 }
 
 const getCachedCategories = unstable_cache(async (): Promise<Category[]> => {
@@ -69,7 +77,7 @@ export async function getCatalogCategories(): Promise<Category[]> {
   return getCachedCategories();
 }
 
-export async function getBestSellingProducts(limit = 8): Promise<Product[]> {
+const getCachedBestSellers = unstable_cache(async (limit = 8): Promise<Product[]> => {
   const take = Math.min(Math.max(limit, 1), 12);
   const sales = await prisma.orderItem.groupBy({
     by: ["productId"],
@@ -113,4 +121,8 @@ export async function getBestSellingProducts(limit = 8): Promise<Product[]> {
   });
 
   return [...ranked, ...fallback].map(productView);
+}, ["storefront-best-sellers"], { revalidate: 60, tags: ["products", "orders"] });
+
+export async function getBestSellingProducts(limit = 8): Promise<Product[]> {
+  return getCachedBestSellers(limit);
 }

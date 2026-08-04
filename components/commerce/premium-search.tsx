@@ -79,7 +79,7 @@ export function PremiumSearch({ mobile = false }: { mobile?: boolean }) {
                 className="grid grid-cols-[58px_1fr_auto] items-center gap-3 rounded-xl p-2 hover:bg-cream"
               >
                 <span className="relative h-14 w-14 overflow-hidden rounded-lg bg-cream">
-                  <Image src={product.images[0]} alt="" fill sizes="58px" className="object-cover" />
+                  <Image src={product.images[0]} alt="" fill unoptimized sizes="58px" className="object-cover" />
                 </span>
                 <span className="min-w-0">
                   <strong className="block truncate text-sm">{product.name}</strong>

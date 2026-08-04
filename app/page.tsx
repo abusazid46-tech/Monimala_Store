@@ -5,7 +5,7 @@ import { ProductCard } from "@/components/commerce/product-card";
 import { getBestSellingProducts, getCatalogCategories } from "@/lib/catalog-db";
 import { reviews } from "@/lib/catalog";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export default async function HomePage() {
   const [categories, bestSellers] = await Promise.all([

@@ -85,7 +85,7 @@ export function CartView({ products }: { products: Product[] }) {
               className="grid grid-cols-[88px_1fr] gap-4 rounded-lg border border-primary/10 bg-white p-3 shadow-sm"
             >
               <div className="relative aspect-square overflow-hidden rounded-md bg-cream">
-                <Image src={product.images[0]} alt={product.name} fill className="object-cover" />
+                <Image src={product.images[0]} alt={product.name} fill unoptimized className="object-cover" />
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between gap-3">

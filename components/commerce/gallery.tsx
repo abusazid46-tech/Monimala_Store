@@ -30,6 +30,7 @@ export function ProductGallery({
           alt={name}
           fill
           priority
+          unoptimized
           sizes="(max-width: 768px) 100vw, 50vw"
           className="object-cover transition duration-500 hover:scale-110"
         />
@@ -62,7 +63,7 @@ export function ProductGallery({
               active === image ? "border-gold shadow-gold" : "border-primary/10"
             )}
           >
-            <Image src={image} alt={name} fill sizes="25vw" className="object-cover" />
+            <Image src={image} alt={name} fill unoptimized sizes="25vw" className="object-cover" />
           </button>
         ))}
       </div>
