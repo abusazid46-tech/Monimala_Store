@@ -13,6 +13,10 @@ type ProductPageProps = {
 
 export const revalidate = 60;
 
+export async function generateStaticParams() {
+  return (await getCatalogProducts()).map((product) => ({ slug: product.slug }));
+}
+
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const { slug } = await params;
   const product = await getCatalogProduct(slug);

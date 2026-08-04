@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { SearchFilters } from "@/components/commerce/search-filters";
 import { getCatalogProducts } from "@/lib/catalog-db";
 
@@ -10,12 +11,7 @@ export const metadata: Metadata = {
 
 export const revalidate = 60;
 
-export default async function ProductsPage({
-  searchParams
-}: {
-  searchParams: Promise<{ q?: string; category?: string }>;
-}) {
-  const filters = await searchParams;
+export default async function ProductsPage() {
   const products = await getCatalogProducts();
   return (
     <div className="container py-8">
@@ -31,7 +27,9 @@ export default async function ProductsPage({
           wishlist saves and WhatsApp support.
         </p>
       </div>
-      <SearchFilters products={products} initialQuery={filters.q || ""} initialCategory={filters.category || ""} />
+      <Suspense fallback={<div className="h-96 animate-pulse rounded-2xl bg-primary/5" />}>
+        <SearchFilters products={products} />
+      </Suspense>
     </div>
   );
 }

@@ -1,18 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Search, SlidersHorizontal } from "lucide-react";
 import type { Product } from "@/lib/types";
 import { Input } from "@/components/ui/input";
 import { ProductCard } from "@/components/commerce/product-card";
 
 export function SearchFilters({ products, initialQuery = "", initialCategory = "" }: { products: Product[]; initialQuery?: string; initialCategory?: string }) {
-  const [query, setQuery] = useState(initialQuery);
-  const matchingCategory = products.find((product) => product.category.toLowerCase().replaceAll(" ", "-") === initialCategory)?.category;
+  const searchParams = useSearchParams();
+  const queryFromUrl = searchParams.get("q") || initialQuery;
+  const categoryFromUrl = searchParams.get("category") || initialCategory;
+  const [query, setQuery] = useState(queryFromUrl);
+  const matchingCategory = products.find((product) => product.category.toLowerCase().replaceAll(" ", "-") === categoryFromUrl)?.category;
   const [category, setCategory] = useState(matchingCategory || "All");
   const [sort, setSort] = useState("ranking");
 
   const categories = ["All", ...Array.from(new Set(products.map((p) => p.category)))];
+
+  useEffect(() => setQuery(queryFromUrl), [queryFromUrl]);
+  useEffect(() => setCategory(matchingCategory || "All"), [matchingCategory]);
 
   const filtered = useMemo(() => {
     const matches = products.filter((product) => {
