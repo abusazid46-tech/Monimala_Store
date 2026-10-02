@@ -10,7 +10,7 @@ export function ProductActions({ product }: { product: Product }) {
   const addToCart = useCommerceStore((state) => state.addToCart);
   const toggleWishlist = useCommerceStore((state) => state.toggleWishlist);
   const wished = useCommerceStore((state) => state.wishlist.includes(product.id));
-  const whatsAppNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919999999999";
+  const whatsAppNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919282713731";
   const inquiry = encodeURIComponent(
     `Hi Monimala Store, I want to know more about ${product.name}.`
   );

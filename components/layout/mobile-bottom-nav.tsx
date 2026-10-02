@@ -8,7 +8,7 @@ export function MobileBottomNav() {
   const cartCount = useCommerceStore((state) =>
     state.cart.reduce((sum, line) => sum + line.quantity, 0)
   );
-  const whatsAppNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919999999999";
+  const whatsAppNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919282713731";
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-primary/10 bg-white/95 pb-safe text-xs font-semibold text-charcoal shadow-[0_-12px_30px_rgba(0,0,0,0.06)] backdrop-blur md:hidden">

@@ -22,20 +22,57 @@ require_admin();
 
 if ($path === '/inventory/adjust' && $method === 'POST') {
     verify_csrf(); $productId=(string)($_POST['product_id']??''); $quantity=filter_var($_POST['quantity']??null,FILTER_VALIDATE_INT); $reason=trim((string)($_POST['reason']??''));
-    if ($productId==='' || $quantity===false || $quantity===0 || strlen($reason)<3) { http_response_code(422); exit('Invalid stock adjustment.'); }
+    if ($productId==='' || $quantity===false || $quantity===0 || strlen($reason)<3) { flash_set('error', 'Invalid stock adjustment parameters.'); redirect('/inventory'); }
     $pdo=db(); $pdo->beginTransaction();
     try {
         $stmt=$pdo->prepare('SELECT stock FROM Product WHERE id=? FOR UPDATE'); $stmt->execute([$productId]); $product=$stmt->fetch();
         if (!$product || (int)$product['stock']+$quantity<0) throw new RuntimeException('Stock cannot become negative.');
         $pdo->prepare('UPDATE Product SET stock=stock+?,updatedAt=NOW(3) WHERE id=?')->execute([$quantity,$productId]);
         $pdo->prepare('INSERT INTO InventoryMovement (id,productId,actorId,quantity,reason,reference,createdAt) VALUES (?,?,?,?,?,?,NOW(3))')->execute(['php_'.bin2hex(random_bytes(12)),$productId,admin()['id'],$quantity,$reason,trim((string)($_POST['reference']??''))?:null]);
-        $pdo->commit(); redirect('/inventory');
-    } catch(Throwable $error) { $pdo->rollBack(); http_response_code(422); exit(e($error->getMessage())); }
+        $pdo->commit(); flash_set('success', 'Stock adjustment successfully posted.'); redirect('/inventory');
+    } catch(Throwable $error) { $pdo->rollBack(); flash_set('error', $error->getMessage()); redirect('/inventory'); }
 }
 if ($path === '/orders/status' && $method === 'POST') {
     verify_csrf(); $allowed=['PENDING','PAID','PACKED','SHIPPED','DELIVERED','CANCELLED'];
-    if (!in_array($_POST['status']??'',$allowed,true)) { http_response_code(422); exit('Invalid status.'); }
-    db()->prepare('UPDATE `Order` SET status=?,updatedAt=NOW(3) WHERE id=?')->execute([$_POST['status'],$_POST['order_id']]); redirect('/orders');
+    if (!in_array($_POST['status']??'',$allowed,true)) { flash_set('error', 'Invalid order status selected.'); redirect('/orders'); }
+    $paymentStatus = in_array($_POST['status'], ['PAID','PACKED','SHIPPED','DELIVERED'], true) ? 'PAID' : 'UNPAID';
+    db()->prepare('UPDATE `Order` SET status=?,paymentStatus=?,updatedAt=NOW(3) WHERE id=?')->execute([$_POST['status'],$paymentStatus,$_POST['order_id']]);
+    flash_set('success', 'Order status updated to ' . $_POST['status']);
+    redirect('/orders');
+}
+if ($path === '/coupons/create' && $method === 'POST') {
+    verify_csrf();
+    $code = strtoupper(trim((string)($_POST['code'] ?? '')));
+    $percent = filter_var($_POST['percent'] ?? null, FILTER_VALIDATE_INT);
+    $expiry = trim((string)($_POST['expires_at'] ?? '')) ?: null;
+    if ($code === '' || $percent === false || $percent < 1 || $percent > 100) {
+        flash_set('error', 'Enter a valid coupon code and percentage (1-100%).');
+        redirect('/coupons');
+    }
+    try {
+        db()->prepare('INSERT INTO Coupon (id,code,percent,active,expiresAt) VALUES (?,?,?,1,?)')->execute([
+            'php_'.bin2hex(random_bytes(12)), $code, $percent, $expiry ? $expiry.' 23:59:59' : null
+        ]);
+        flash_set('success', "Coupon $code created successfully.");
+    } catch (PDOException $e) {
+        flash_set('error', 'That coupon code already exists.');
+    }
+    redirect('/coupons');
+}
+if ($path === '/coupons/toggle' && $method === 'POST') {
+    verify_csrf();
+    $id = trim((string)($_POST['coupon_id'] ?? ''));
+    $active = isset($_POST['active']) && $_POST['active'] === '1' ? 1 : 0;
+    db()->prepare('UPDATE Coupon SET active=? WHERE id=?')->execute([$active, $id]);
+    flash_set('success', 'Coupon status updated.');
+    redirect('/coupons');
+}
+if ($path === '/coupons/delete' && $method === 'POST') {
+    verify_csrf();
+    $id = trim((string)($_POST['coupon_id'] ?? ''));
+    db()->prepare('DELETE FROM Coupon WHERE id=?')->execute([$id]);
+    flash_set('success', 'Coupon deleted.');
+    redirect('/coupons');
 }
 if ($path === '/products/update' && $method === 'POST') {
     verify_csrf();
@@ -43,11 +80,32 @@ if ($path === '/products/update' && $method === 'POST') {
     $sku=strtoupper(trim((string)($_POST['sku']??''))); $price=filter_var($_POST['price']??null,FILTER_VALIDATE_INT); $low=filter_var($_POST['low_stock_at']??null,FILTER_VALIDATE_INT);
     $compareRaw=trim((string)($_POST['compare_at']??'')); $compareAt=$compareRaw===''?null:filter_var($compareRaw,FILTER_VALIDATE_INT);
     $youtubeUrl=trim((string)($_POST['youtube_url']??'')); $colors=list_values((string)($_POST['colors']??'')); $sizes=list_values((string)($_POST['sizes']??''));
-    if ($id==='' || strlen($name)<2 || $slug==='' || $sku==='' || empty($_POST['category_id']) || $price===false || $price<0 || $low===false || $low<0 || ($compareRaw!=='' && ($compareAt===false || $compareAt<0))) { http_response_code(422); exit('Complete every required product field with valid values.'); }
-    if($youtubeUrl!=='' && (!filter_var($youtubeUrl,FILTER_VALIDATE_URL) || !preg_match('/(^|\.)((youtube\.com)|(youtu\.be))$/i',(string)parse_url($youtubeUrl,PHP_URL_HOST)))) { http_response_code(422); exit('Enter a valid YouTube URL.'); }
+    if ($id==='' || strlen($name)<2 || $slug==='' || $sku==='' || empty($_POST['category_id']) || $price===false || $price<0 || $low===false || $low<0 || ($compareRaw!=='' && ($compareAt===false || $compareAt<0))) {
+        flash_set('error', 'Complete every required product field with valid values.');
+        redirect('/products/edit?id='.urlencode($id));
+    }
+    if($youtubeUrl!=='' && (!filter_var($youtubeUrl,FILTER_VALIDATE_URL) || !preg_match('/(^|\.)((youtube\.com)|(youtu\.be))$/i',(string)parse_url($youtubeUrl,PHP_URL_HOST)))) {
+        flash_set('error', 'Enter a valid YouTube URL.');
+        redirect('/products/edit?id='.urlencode($id));
+    }
+
+    $existing = isset($_POST['existing_images']) && is_array($_POST['existing_images']) ? array_filter(array_map('trim', $_POST['existing_images'])) : [];
+    $gallerySelected = isset($_POST['gallery_selected']) && is_array($_POST['gallery_selected']) ? array_filter(array_map('trim', $_POST['gallery_selected'])) : [];
+    $uploads = uploaded_product_images($_FILES['image_files'] ?? null);
+    $rawUrls = trim((string)($_POST['image_urls'] ?? ''));
+    $urlList = array_values(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $rawUrls) ?: [])));
+    $images = array_values(array_unique(array_merge($existing, $gallerySelected, $uploads, $urlList)));
+
     try {
-        db()->prepare('UPDATE Product SET name=?,slug=?,sku=?,categoryId=?,description=?,price=?,compareAt=?,lowStockAt=?,metal=?,occasion=?,colors=?,sizes=?,youtubeUrl=?,position=?,isFeatured=?,isNew=?,active=?,updatedAt=NOW(3) WHERE id=?')->execute([$name,$slug,$sku,(string)$_POST['category_id'],trim((string)($_POST['description']??'')),$price,$compareAt,$low,trim((string)($_POST['metal']??''))?:null,trim((string)($_POST['occasion']??''))?:null,json_encode($colors),json_encode($sizes),$youtubeUrl?:null,max(0,(int)($_POST['position']??0)),isset($_POST['featured'])?1:0,isset($_POST['is_new'])?1:0,isset($_POST['active'])?1:0,$id]);
-    } catch(PDOException $error) { http_response_code(422); exit($error->getCode()==='23000'?'That SKU or slug is already in use.':'Unable to update this product.'); }
+        if ($images) {
+            db()->prepare('UPDATE Product SET name=?,slug=?,sku=?,categoryId=?,description=?,price=?,compareAt=?,lowStockAt=?,metal=?,occasion=?,colors=?,sizes=?,youtubeUrl=?,position=?,isFeatured=?,isNew=?,active=?,images=?,updatedAt=NOW(3) WHERE id=?')->execute([$name,$slug,$sku,(string)$_POST['category_id'],trim((string)($_POST['description']??'')),$price,$compareAt,$low,trim((string)($_POST['metal']??''))?:null,trim((string)($_POST['occasion']??''))?:null,json_encode($colors),json_encode($sizes),$youtubeUrl?:null,max(0,(int)($_POST['position']??0)),isset($_POST['featured'])?1:0,isset($_POST['is_new'])?1:0,isset($_POST['active'])?1:0,json_encode($images,JSON_UNESCAPED_SLASHES),$id]);
+        } else {
+            db()->prepare('UPDATE Product SET name=?,slug=?,sku=?,categoryId=?,description=?,price=?,compareAt=?,lowStockAt=?,metal=?,occasion=?,colors=?,sizes=?,youtubeUrl=?,position=?,isFeatured=?,isNew=?,active=?,updatedAt=NOW(3) WHERE id=?')->execute([$name,$slug,$sku,(string)$_POST['category_id'],trim((string)($_POST['description']??'')),$price,$compareAt,$low,trim((string)($_POST['metal']??''))?:null,trim((string)($_POST['occasion']??''))?:null,json_encode($colors),json_encode($sizes),$youtubeUrl?:null,max(0,(int)($_POST['position']??0)),isset($_POST['featured'])?1:0,isset($_POST['is_new'])?1:0,isset($_POST['active'])?1:0,$id]);
+        }
+        flash_set('success', "Product '$name' updated successfully.");
+    } catch(PDOException $error) {
+        flash_set('error', $error->getCode()==='23000'?'That SKU or slug is already in use.':'Unable to update this product.');
+    }
     redirect('/products');
 }
 if ($path === '/products/gallery' && $method === 'POST') {
@@ -87,27 +145,236 @@ if ($path === '/categories/create' && $method === 'POST') {
 if ($path === '/products/create' && $method === 'POST') {
     verify_csrf();
     $name=trim((string)($_POST['name']??'')); $slug=slugify((string)($_POST['slug']?:$name)); $price=filter_var($_POST['price']??null,FILTER_VALIDATE_INT); $stock=filter_var($_POST['stock']??null,FILTER_VALIDATE_INT);
-    $images=array_values(array_filter(array_map('trim',preg_split('/[\r\n,]+/',(string)($_POST['images']??''))?:[])));
+    $compareRaw=trim((string)($_POST['compare_at']??'')); $compareAt=$compareRaw===''?null:filter_var($compareRaw,FILTER_VALIDATE_INT);
     $youtubeUrl=trim((string)($_POST['youtube_url']??''));
-    if($youtubeUrl!=='' && (!filter_var($youtubeUrl,FILTER_VALIDATE_URL) || !preg_match('/(^|\.)((youtube\.com)|(youtu\.be))$/i',(string)parse_url($youtubeUrl,PHP_URL_HOST)))) { http_response_code(422); exit('Enter a valid YouTube URL.'); }
-    if(strlen($name)<2 || $slug==='' || $price===false || $price<0 || $stock===false || $stock<0 || empty($_POST['category_id']) || empty($_POST['sku']) || !$images) { http_response_code(422); exit('Complete every required product field.'); }
+
+    $uploads = uploaded_product_images($_FILES['image_files'] ?? null);
+    $gallerySelected = isset($_POST['gallery_selected']) && is_array($_POST['gallery_selected']) ? array_filter(array_map('trim', $_POST['gallery_selected'])) : [];
+    $rawUrls = trim((string)($_POST['image_urls'] ?? $_POST['images'] ?? ''));
+    $urlList = array_values(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $rawUrls) ?: [])));
+    $images = array_values(array_unique(array_merge($gallerySelected, $uploads, $urlList)));
+    if (!$images) {
+        $images = ['/images/monimala-hero.png'];
+    }
+
+    if($youtubeUrl!=='' && (!filter_var($youtubeUrl,FILTER_VALIDATE_URL) || !preg_match('/(^|\.)((youtube\.com)|(youtu\.be))$/i',(string)parse_url($youtubeUrl,PHP_URL_HOST)))) {
+        flash_set('error', 'Enter a valid YouTube URL.');
+        redirect('/products');
+    }
+    if(strlen($name)<2 || $slug==='' || $price===false || $price<0 || $stock===false || $stock<0 || empty($_POST['category_id']) || empty($_POST['sku'])) {
+        flash_set('error', 'Complete every required product field with valid values.');
+        redirect('/products');
+    }
     $id='php_'.bin2hex(random_bytes(12)); $pdo=db(); $pdo->beginTransaction();
     try {
-        $pdo->prepare('INSERT INTO Product (id,name,slug,description,price,compareAt,stock,sku,images,youtubeUrl,metal,occasion,isFeatured,isNew,categoryId,active,lowStockAt,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(3),NOW(3))')->execute([$id,$name,$slug,trim((string)$_POST['description']),$price,null,$stock,strtoupper(trim((string)$_POST['sku'])),json_encode($images,JSON_UNESCAPED_SLASHES),$youtubeUrl?:null,trim((string)$_POST['metal'])?:null,trim((string)$_POST['occasion'])?:null,isset($_POST['featured'])?1:0,isset($_POST['is_new'])?1:0,$_POST['category_id'],1,max(0,(int)($_POST['low_stock_at']??5))]);
+        $pdo->prepare('INSERT INTO Product (id,name,slug,description,price,compareAt,stock,sku,images,youtubeUrl,metal,occasion,isFeatured,isNew,categoryId,active,lowStockAt,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(3),NOW(3))')->execute([$id,$name,$slug,trim((string)$_POST['description']),$price,$compareAt,$stock,strtoupper(trim((string)$_POST['sku'])),json_encode($images,JSON_UNESCAPED_SLASHES),$youtubeUrl?:null,trim((string)$_POST['metal'])?:null,trim((string)$_POST['occasion'])?:null,isset($_POST['featured'])?1:0,isset($_POST['is_new'])?1:0,$_POST['category_id'],1,max(0,(int)($_POST['low_stock_at']??5))]);
         if($stock>0) $pdo->prepare('INSERT INTO InventoryMovement (id,productId,actorId,quantity,reason,reference,createdAt) VALUES (?,?,?,?,?,?,NOW(3))')->execute(['php_'.bin2hex(random_bytes(12)),$id,admin()['id'],$stock,'OPENING_STOCK','Product creation']);
         $pdo->commit();
-    } catch(Throwable $error) { $pdo->rollBack(); http_response_code(422); exit('SKU or slug already exists, or the category is invalid.'); }
+        flash_set('success', "Product '$name' created successfully with ".count($images)." image".(count($images)===1?'':'s').".");
+    } catch(Throwable $error) {
+        $pdo->rollBack();
+        flash_set('error', 'SKU or slug already exists, or the category is invalid.');
+    }
     redirect('/products');
 }
 
-layout_start(match($path){'/categories'=>'Categories','/products'=>'Products','/products/edit'=>'Edit product','/inventory'=>'Inventory','/orders'=>'Orders',default=>'Dashboard'});
-if($path==='/categories') { categories_page(); category_ranking_page(); } elseif($path==='/products') { products_page_v2(); product_advanced_page(); } elseif($path==='/products/edit') product_edit_page(); elseif($path==='/inventory') inventory_page(); elseif($path==='/orders') orders_page(); else dashboard_page();
+layout_start(match($path){
+    '/categories'=>'Categories',
+    '/products'=>'Products',
+    '/products/edit'=>'Edit product',
+    '/inventory'=>'Inventory',
+    '/orders'=>'Orders',
+    '/customers'=>'Customers',
+    '/coupons'=>'Coupons',
+    default=>'Dashboard'
+}, $path);
+
+if($path==='/categories') { categories_page(); category_ranking_page(); }
+elseif($path==='/products') { products_page_v2(); product_advanced_page(); }
+elseif($path==='/products/edit') product_edit_page();
+elseif($path==='/inventory') { inventory_page(); inventory_movements_page(); }
+elseif($path==='/orders') orders_page();
+elseif($path==='/customers') customers_page();
+elseif($path==='/coupons') coupons_page();
+else dashboard_page();
+
 layout_end();
 
 function login_page(string $error=''): void { ?><!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Admin Login</title><link rel="stylesheet" href="/assets/admin.css"></head><body class="login"><form method="post" class="login-card"><h1>Monimala Admin</h1><p>Authorised staff only</p><?php if($error):?><div class="error"><?=e($error)?></div><?php endif?><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Email<input name="email" type="email" required autocomplete="username"></label><label>Password<input name="password" type="password" required autocomplete="current-password"></label><button>Secure sign in</button></form></body></html><?php }
-function layout_start(string $title): void { ?><!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title><?=e($title)?> · Monimala</title><link rel="stylesheet" href="/assets/admin.css"></head><body><aside><div><h1>Monimala</h1><p>Commerce Control</p></div><nav><a href="/">Dashboard</a><a href="/categories">Categories</a><a href="/products">Products</a><a href="/inventory">Inventory</a><a href="/orders">Orders</a></nav><form method="post" action="/logout"><input type="hidden" name="_token" value="<?=csrf_token()?>"><button>Sign out</button></form></aside><main><header><div><small>MONIMALA STORE</small><h2><?=e($title)?></h2></div><span><?=e(admin()['name'])?></span></header><?php }
-function layout_end(): void { ?></main></body></html><?php }
-function dashboard_page(): void { $pdo=db(); $stats=['Products'=>$pdo->query('SELECT COUNT(*) FROM Product WHERE active=1')->fetchColumn(),'Low stock'=>$pdo->query('SELECT COUNT(*) FROM Product WHERE active=1 AND stock<=lowStockAt')->fetchColumn(),'Open orders'=>$pdo->query("SELECT COUNT(*) FROM `Order` WHERE status NOT IN ('DELIVERED','CANCELLED')")->fetchColumn(),'Paid revenue'=>$pdo->query("SELECT COALESCE(SUM(total),0) FROM `Order` WHERE paymentStatus='PAID'")->fetchColumn()]; echo '<section class="stats">'; foreach($stats as $label=>$value) echo '<article><small>'.e($label).'</small><strong>'.e($value).'</strong></article>'; echo '</section>'; }
+
+function layout_start(string $title, string $currentPath = '/'): void {
+    $flash = flash_get();
+    $nav = [
+        '/' => 'Dashboard',
+        '/orders' => 'Orders',
+        '/products' => 'Products',
+        '/inventory' => 'Inventory',
+        '/customers' => 'Customers',
+        '/coupons' => 'Coupons',
+        '/categories' => 'Categories'
+    ];
+?><!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title><?=e($title)?> · Monimala Commerce</title><link rel="stylesheet" href="/assets/admin.css"></head><body><aside><div><h1>Monimala</h1><p>Commerce Control</p></div><nav><?php foreach($nav as $href => $label): $active = ($currentPath === $href) || ($href !== '/' && str_starts_with($currentPath, $href)); ?><a href="<?=$href?>" class="<?=$active?'active':''?>"><?=e($label)?></a><?php endforeach; ?></nav><form method="post" action="/logout"><input type="hidden" name="_token" value="<?=csrf_token()?>"><button class="sign-out-btn">Sign out</button></form></aside><main><header><div><small>MONIMALA COMMERCE CONTROL</small><h2><?=e($title)?></h2></div><div class="user-pill"><span><?=e(admin()['name'])?></span><small><?=e(admin()['email'])?></small></div></header><?php if($flash):?><div class="flash flash-<?=e($flash['type'])?>"><?=e($flash['message'])?></div><?php endif; }
+function layout_end(): void { ?>
+</main>
+<script>
+function selectMediaTab(btn, panelId) {
+    const desk = btn.closest('.product-media-desk');
+    if (!desk) return;
+    desk.querySelectorAll('.media-tab-btn').forEach(b => b.classList.remove('active'));
+    desk.querySelectorAll('.media-tab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    const panel = document.getElementById(panelId);
+    if (panel) panel.classList.add('active');
+}
+
+function toggleGalleryImage(item, url, formId) {
+    item.classList.toggle('selected');
+    const isSelected = item.classList.contains('selected');
+    const tray = document.getElementById('tray-' + formId);
+    const inputs = document.getElementById('gallery-inputs-' + formId);
+    const countEl = document.getElementById('count-' + formId);
+    if (!tray || !inputs) return;
+
+    let existingInput = Array.from(inputs.querySelectorAll('input')).find(i => i.value === url);
+    if (isSelected) {
+        if (!existingInput) {
+            const inp = document.createElement('input');
+            inp.type = 'hidden';
+            inp.name = 'gallery_selected[]';
+            inp.value = url;
+            inputs.appendChild(inp);
+
+            const card = document.createElement('div');
+            card.className = 'preview-card';
+            card.dataset.url = url;
+            const cardId = 'card-' + formId + '-' + Math.random().toString(36).substr(2, 8);
+            card.id = cardId;
+            card.innerHTML = `<img src="${url}" alt=""><button type="button" class="preview-card-remove" onclick="removeAttachedImage('${cardId}', '${url}', '${formId}')">✕</button>`;
+            tray.appendChild(card);
+        }
+    } else {
+        if (existingInput) existingInput.remove();
+        const card = Array.from(tray.querySelectorAll('.preview-card')).find(c => c.dataset.url === url || c.querySelector('input')?.value === url);
+        if (card) card.remove();
+    }
+    if (countEl) countEl.innerText = tray.querySelectorAll('.preview-card').length;
+}
+
+function removeAttachedImage(cardId, url, formId) {
+    const card = document.getElementById(cardId) || document.querySelector(`[data-url="${url}"]`);
+    if (card) card.remove();
+    
+    const gallery = document.getElementById('tab-gallery-' + formId);
+    if (gallery) {
+        gallery.querySelectorAll('.gallery-thumb-item').forEach(gi => {
+            if (gi.dataset.url === url || gi.querySelector('img')?.src === url) {
+                gi.classList.remove('selected');
+            }
+        });
+    }
+
+    const inputs = document.getElementById('gallery-inputs-' + formId);
+    if (inputs) {
+        inputs.querySelectorAll('input').forEach(i => {
+            if (i.value === url) i.remove();
+        });
+    }
+
+    const countEl = document.getElementById('count-' + formId);
+    const tray = document.getElementById('tray-' + formId);
+    if (countEl && tray) countEl.innerText = tray.querySelectorAll('.preview-card').length;
+}
+
+function handleFilePreview(input, formId) {
+    const previewDiv = document.getElementById('upload-preview-' + formId);
+    if (!previewDiv) return;
+    previewDiv.innerHTML = '';
+    if (input.files) {
+        Array.from(input.files).forEach(file => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const card = document.createElement('div');
+                card.className = 'preview-card';
+                card.innerHTML = `<img src="${e.target.result}" alt="${file.name}"><span style="position:absolute;bottom:0;left:0;right:0;background:rgba(8,116,67,0.9);color:#fff;font-size:9px;font-weight:700;text-align:center;padding:1px;white-space:nowrap;overflow:hidden;">New Upload</span>`;
+                previewDiv.appendChild(card);
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+}
+</script>
+</body></html><?php }
+function dashboard_page(): void {
+    $pdo=db();
+    $stats=[
+        'Active Products'=>$pdo->query('SELECT COUNT(*) FROM Product WHERE active=1')->fetchColumn(),
+        'Low Stock Alerts'=>$pdo->query('SELECT COUNT(*) FROM Product WHERE active=1 AND stock<=lowStockAt')->fetchColumn(),
+        'Open Orders'=>$pdo->query("SELECT COUNT(*) FROM `Order` WHERE status NOT IN ('DELIVERED','CANCELLED')")->fetchColumn(),
+        'Paid Revenue'=>'₹'.number_format((int)$pdo->query("SELECT COALESCE(SUM(total),0) FROM `Order` WHERE paymentStatus='PAID'")->fetchColumn()),
+        'Customers'=>$pdo->query("SELECT COUNT(*) FROM User WHERE role='CUSTOMER'")->fetchColumn()
+    ];
+    echo '<section class="stats stats-5">';
+    foreach($stats as $label=>$value) echo '<article><small>'.e($label).'</small><strong>'.e($value).'</strong></article>';
+    echo '</section>';
+
+    $recentOrders = $pdo->query("SELECT id, trackingCode, email, total, status, paymentStatus, createdAt FROM `Order` ORDER BY createdAt DESC LIMIT 6")->fetchAll();
+    $lowProducts = $pdo->query("SELECT id, name, sku, stock, lowStockAt FROM Product WHERE active=1 AND stock <= lowStockAt ORDER BY stock ASC LIMIT 6")->fetchAll();
+    ?>
+    <div class="dashboard-grid">
+        <section class="panel">
+            <div class="panel-heading">
+                <div>
+                    <h3>Recent Store Orders</h3>
+                    <p>Latest online orders and payments</p>
+                </div>
+                <a class="button-secondary" href="/orders">View all orders &rarr;</a>
+            </div>
+            <table>
+                <thead>
+                    <tr><th>Reference</th><th>Customer</th><th>Total</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($recentOrders as $order): ?>
+                        <tr>
+                            <td><a href="/orders#order-<?=e($order['id'])?>"><strong><?=e($order['trackingCode'])?></strong></a><small><?=e(date('M j, H:i', strtotime($order['createdAt'])))?></small></td>
+                            <td><?=e($order['email'])?></td>
+                            <td><strong>₹<?=number_format((int)$order['total'])?></strong></td>
+                            <td><span class="status-badge status-<?=strtolower(e($order['status']))?>"><?=e($order['status'])?></span></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if (!$recentOrders): ?>
+                        <tr><td colSpan="4" class="empty-state">No orders received yet.</td></tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="panel">
+            <div class="panel-heading">
+                <div>
+                    <h3>Low Stock Alerts</h3>
+                    <p>Products requiring replenishment</p>
+                </div>
+                <a class="button-secondary" href="/inventory">Inventory &rarr;</a>
+            </div>
+            <div class="low-stock-list">
+                <?php foreach ($lowProducts as $lp): ?>
+                    <div class="low-stock-item">
+                        <div>
+                            <strong><?=e($lp['name'])?></strong>
+                            <small>SKU: <?=e($lp['sku'])?></small>
+                        </div>
+                        <span class="stock-danger-pill"><?=e($lp['stock'])?> left</span>
+                    </div>
+                <?php endforeach; ?>
+                <?php if (!$lowProducts): ?>
+                    <p class="empty-state">All inventory levels are healthy.</p>
+                <?php endif; ?>
+            </div>
+        </section>
+    </div>
+    <?php
+}
 function list_values(string $value): array { return array_values(array_unique(array_filter(array_map('trim',preg_split('/[\r\n,]+/',$value)?:[])))); }
 function uploaded_product_images(?array $files,int $limit=5): array {
     if(!$files || !isset($files['name']))return []; $names=is_array($files['name'])?$files['name']:[$files['name']]; $results=[];
@@ -140,23 +407,719 @@ function category_image(?array $file,string $url): ?string {
 function categories_page(): void { $items=db()->query('SELECT c.id,c.name,c.slug,c.image,c.active,p.name parent FROM Category c LEFT JOIN Category p ON p.id=c.parentId ORDER BY c.parentId IS NOT NULL,c.createdAt,c.name')->fetchAll(); ?><section class="panel"><h3>Create category or subcategory</h3><form method="post" action="/categories/create" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Name<input name="name" required></label><label>Slug (optional)<input name="slug"></label><label>Parent category<select name="parent_id"><option value="">Top-level category</option><?php foreach($items as $item):?><option value="<?=e($item['id'])?>"><?=e(($item['parent']?$item['parent'].' → ':'').$item['name'])?></option><?php endforeach?></select></label><label>Image URL<input name="image"></label><label class="wide">Description<textarea name="description"></textarea></label><button>Create category</button></form></section><section class="panel"><h3>Category icons</h3><p>Upload a square transparent PNG/WebP or enter an image URL. The new icon appears on the storefront immediately.</p><table><thead><tr><th>Icon</th><th>Category</th><th>Parent</th><th>Replace icon and update</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><?php if($item['image']):?><img class="category-thumb" src="<?=e($item['image'])?>" alt=""><?php else:?><span>No icon</span><?php endif?></td><td><strong><?=e($item['name'])?></strong><small><?=e($item['slug'])?></small></td><td><?=e($item['parent']?:'Top level')?></td><td><form method="post" action="/categories/update" enctype="multipart/form-data" class="category-edit"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="category_id" value="<?=e($item['id'])?>"><input name="name" value="<?=e($item['name'])?>" required aria-label="Category name"><input name="image_file" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-label="Upload category icon"><input name="image_url" type="url" placeholder="Or paste image URL" aria-label="Category image URL"><label><input name="active" type="checkbox" <?=$item['active']?'checked':''?>> Active</label><button>Save</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
 function products_page(): void { $items=db()->query('SELECT p.id,p.sku,p.name,p.price,p.lowStockAt,p.active,c.name category FROM Product p JOIN Category c ON c.id=p.categoryId ORDER BY p.updatedAt DESC')->fetchAll(); $categories=db()->query('SELECT id,name FROM Category WHERE active=1 ORDER BY name')->fetchAll(); ?><section class="panel"><h3>Create product</h3><form method="post" action="/products/create" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Name<input name="name" required></label><label>Slug (optional)<input name="slug"></label><label>SKU<input name="sku" required></label><label>Category<select name="category_id" required><option value="">Select category</option><?php foreach($categories as $category):?><option value="<?=e($category['id'])?>"><?=e($category['name'])?></option><?php endforeach?></select></label><label>Price in ₹<input name="price" type="number" min="0" required></label><label>Opening stock<input name="stock" type="number" min="0" value="0" required></label><label>Low-stock alert<input name="low_stock_at" type="number" min="0" value="5" required></label><label>Metal/finish<input name="metal"></label><label>Occasion<input name="occasion"></label><label class="wide">YouTube product video URL (optional)<input name="youtube_url" type="url" placeholder="https://www.youtube.com/watch?v=..."></label><label class="wide">Image URLs (one per line)<textarea name="images" required></textarea></label><label class="wide">Description<textarea name="description" required></textarea></label><label><input type="checkbox" name="featured"> Featured</label><label><input type="checkbox" name="is_new"> New arrival</label><button>Create product</button></form></section><section class="panel"><h3>Product controls</h3><table><thead><tr><th>Product</th><th>Category</th><th>Commercial settings</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><strong><?=e($item['name'])?></strong><small><?=e($item['sku'])?></small></td><td><?=e($item['category'])?></td><td><form method="post" action="/products/update" class="inline"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="product_id" value="<?=e($item['id'])?>"><input name="price" type="number" min="0" value="<?=e($item['price'])?>" required aria-label="Price"><input name="low_stock_at" type="number" min="0" value="<?=e($item['lowStockAt'])?>" required aria-label="Low stock threshold"><label><input name="active" type="checkbox" <?=$item['active']?'checked':''?>> Active</label><button>Save</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
 
+function available_media_gallery(): array {
+    $results = [];
+    $uploadDir = __DIR__ . '/uploads/products';
+    if (is_dir($uploadDir)) {
+        $files = scandir($uploadDir);
+        foreach ($files as $f) {
+            if ($f === '.' || $f === '..') continue;
+            $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+            if (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) {
+                $results[] = rtrim((string)env_value('APP_URL', 'https://lightskyblue-swan-841286.hostingersite.com'), '/') . '/uploads/products/' . $f;
+            }
+        }
+    }
+    try {
+        $existing = db()->query("SELECT images FROM Product WHERE images IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($existing as $imgJson) {
+            $arr = json_decode((string)$imgJson, true);
+            if (is_array($arr)) {
+                foreach ($arr as $url) {
+                    if (is_string($url) && strlen($url) > 5 && !in_array($url, $results, true)) {
+                        $results[] = $url;
+                    }
+                }
+            }
+        }
+    } catch (Throwable) {}
+    return $results;
+}
+
+function render_media_desk(array $currentImages, string $formId): void {
+    $gallery = available_media_gallery();
+    ?>
+    <div class="product-media-desk">
+        <h4>Product Imagery & Media Gallery</h4>
+        <p>Choose from your store gallery, upload new photos directly from your device, or paste external image URLs. All methods can be used together.</p>
+
+        <div class="media-tabs">
+            <button type="button" class="media-tab-btn active" onclick="selectMediaTab(this, 'tab-gallery-<?=$formId?>')">🖼️ Store Media Gallery</button>
+            <button type="button" class="media-tab-btn" onclick="selectMediaTab(this, 'tab-upload-<?=$formId?>')">📁 Upload from Device</button>
+            <button type="button" class="media-tab-btn" onclick="selectMediaTab(this, 'tab-urls-<?=$formId?>')">🔗 Add by URL</button>
+        </div>
+
+        <div id="tab-gallery-<?=$formId?>" class="media-tab-panel active">
+            <div class="gallery-selector-container">
+                <div class="gallery-selector-grid">
+                    <?php foreach ($gallery as $gUrl): 
+                        $isSelected = in_array($gUrl, $currentImages, true);
+                    ?>
+                        <div class="gallery-thumb-item <?=$isSelected?'selected':''?>" data-url="<?=e($gUrl)?>" onclick="toggleGalleryImage(this, '<?=e($gUrl)?>', '<?=$formId?>')">
+                            <img src="<?=e($gUrl)?>" alt="Gallery item" loading="lazy">
+                            <span class="gallery-check-badge">✓</span>
+                        </div>
+                    <?php endforeach; ?>
+                    <?php if (!$gallery): ?>
+                        <p style="grid-column:1/-1;color:#888;font-size:12px;padding:10px;">No gallery images uploaded yet. Upload photos in the "Upload from Device" tab!</p>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-upload-<?=$formId?>" class="media-tab-panel">
+            <label class="media-dropzone">
+                <input type="file" name="image_files[]" multiple accept="image/jpeg,image/png,image/webp" onchange="handleFilePreview(this, '<?=$formId?>')">
+                <div class="media-dropzone-inner">
+                    <strong>📁 Click or drag photos here to upload</strong>
+                    <small>High resolution JPG, PNG, or WebP (up to 5 MB each)</small>
+                </div>
+            </label>
+            <div id="upload-preview-<?=$formId?>" class="image-preview-grid" style="margin-top:12px;"></div>
+        </div>
+
+        <div id="tab-urls-<?=$formId?>" class="media-tab-panel">
+            <label style="display:grid;gap:6px;">
+                <span style="font-size:12px;font-weight:700;color:#611320;">Paste image URLs (one URL per line or comma-separated)</span>
+                <textarea name="image_urls" id="urls-input-<?=$formId?>" placeholder="https://images.unsplash.com/...&#10;https://.../photo.jpg" rows="3" style="width:100%;"><?php 
+                    $nonUploadUrls = array_filter($currentImages, fn($u) => !str_contains($u, '/uploads/products/'));
+                    echo e(implode("\n", $nonUploadUrls));
+                ?></textarea>
+            </label>
+        </div>
+
+        <div class="image-preview-tray">
+            <h5>Currently Attached Images (<span id="count-<?=$formId?>"><?=count($currentImages)?></span>)</h5>
+            <div id="tray-<?=$formId?>" class="image-preview-grid">
+                <?php foreach ($currentImages as $idx => $img): ?>
+                    <div class="preview-card" id="card-<?=$formId?>-<?=$idx?>" data-url="<?=e($img)?>">
+                        <img src="<?=e($img)?>" alt="">
+                        <input type="hidden" name="existing_images[]" value="<?=e($img)?>">
+                        <button type="button" class="preview-card-remove" onclick="removeAttachedImage('card-<?=$formId?>-<?=$idx?>', '<?=e($img)?>', '<?=$formId?>')">✕</button>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            <div id="gallery-inputs-<?=$formId?>">
+                <?php foreach ($currentImages as $img): ?>
+                    <?php if (str_contains($img, '/uploads/products/')): ?>
+                        <input type="hidden" name="gallery_selected[]" value="<?=e($img)?>">
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </div>
+    <?php
+}
+
 function products_page_v2(): void {
     $q=trim((string)($_GET['q']??'')); $category=trim((string)($_GET['category']??'')); $pdo=db();
-    $sql='SELECT p.id,p.sku,p.name,p.price,p.stock,p.active,p.images,c.name category FROM Product p JOIN Category c ON c.id=p.categoryId WHERE 1=1'; $params=[];
+    $sql='SELECT p.id,p.sku,p.name,p.slug,p.price,p.compareAt,p.stock,p.lowStockAt,p.active,p.isFeatured,p.isNew,p.metal,p.occasion,p.images,c.name category FROM Product p JOIN Category c ON c.id=p.categoryId WHERE 1=1'; 
+    $params=[];
     if($q!==''){ $sql.=' AND (p.name LIKE ? OR p.sku LIKE ?)'; $params[]='%'.$q.'%'; $params[]='%'.$q.'%'; }
     if($category!==''){ $sql.=' AND p.categoryId=?'; $params[]=$category; }
-    $sql.=' ORDER BY p.updatedAt DESC'; $stmt=$pdo->prepare($sql); $stmt->execute($params); $items=$stmt->fetchAll();
+    $sql.=' ORDER BY p.updatedAt DESC'; 
+    $stmt=$pdo->prepare($sql); $stmt->execute($params); $items=$stmt->fetchAll();
     $categories=$pdo->query('SELECT id,name FROM Category WHERE active=1 ORDER BY name')->fetchAll();
-    ?><section class="panel product-create"><details><summary><strong>＋ Add a new product</strong><span>Open creation form</span></summary><form method="post" action="/products/create" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Name<input name="name" required></label><label>Slug (optional)<input name="slug"></label><label>SKU<input name="sku" required></label><label>Category<select name="category_id" required><option value="">Select category</option><?php foreach($categories as $cat):?><option value="<?=e($cat['id'])?>"><?=e($cat['name'])?></option><?php endforeach?></select></label><label>Price in ₹<input name="price" type="number" min="0" required></label><label>Opening stock<input name="stock" type="number" min="0" value="0" required></label><label>Low-stock alert<input name="low_stock_at" type="number" min="0" value="5" required></label><label>Metal/finish<input name="metal"></label><label>Occasion<input name="occasion"></label><label class="wide">YouTube product video URL<input name="youtube_url" type="url"></label><label class="wide">Image URLs (one per line)<textarea name="images" required></textarea></label><label class="wide">Description<textarea name="description" required></textarea></label><label><input type="checkbox" name="featured"> Featured</label><label><input type="checkbox" name="is_new"> New arrival</label><button>Create product</button></form></details></section>
-    <section class="panel"><div class="panel-heading"><div><h3>Product catalogue</h3><p><?=count($items)?> product<?=count($items)===1?'':'s'?> found</p></div></div><form method="get" action="/products" class="catalogue-filters"><label>Search products<input type="search" name="q" value="<?=e($q)?>" placeholder="Name or SKU"></label><label>Category<select name="category"><option value="">All categories</option><?php foreach($categories as $cat):?><option value="<?=e($cat['id'])?>" <?=$category===$cat['id']?'selected':''?>><?=e($cat['name'])?></option><?php endforeach?></select></label><button>Filter</button><a class="button-secondary" href="/products">Clear</a></form>
-    <div class="product-list"><?php foreach($items as $item): $images=json_decode((string)$item['images'],true)?:[]; ?><article class="product-row"><?php if(!empty($images[0])):?><img src="<?=e($images[0])?>" alt=""><?php else:?><div class="product-placeholder">No photo</div><?php endif?><div class="product-summary"><strong><?=e($item['name'])?></strong><small><?=e($item['sku'])?> · <?=e($item['category'])?></small><span>₹<?=number_format((int)$item['price'])?> · Stock <?=e($item['stock'])?></span></div><span class="status <?=$item['active']?'live':'draft'?>"><?=$item['active']?'Live':'Hidden'?></span><a class="button-secondary" href="/products/edit?id=<?=urlencode($item['id'])?>">Edit product</a></article><?php endforeach?><?php if(!$items):?><p class="empty-state">No products match these filters.</p><?php endif?></div></section><?php
+
+    // Calculate Summary Metrics
+    $totalCount = count($items);
+    $liveCount = count(array_filter($items, fn($p) => (bool)$p['active']));
+    $draftCount = $totalCount - $liveCount;
+    $lowStockCount = count(array_filter($items, fn($p) => (int)$p['stock'] > 0 && (int)$p['stock'] <= (int)$p['lowStockAt']));
+    $outOfStockCount = count(array_filter($items, fn($p) => (int)$p['stock'] === 0));
+    ?>
+    <section class="product-counter-bar">
+        <div class="counter-chip">
+            <small>Total Products</small>
+            <strong><?=$totalCount?></strong>
+        </div>
+        <div class="counter-chip">
+            <small>Live on Store</small>
+            <strong style="color:#087443;"><?=$liveCount?></strong>
+        </div>
+        <div class="counter-chip">
+            <small>Hidden / Draft</small>
+            <strong style="color:#4b5563;"><?=$draftCount?></strong>
+        </div>
+        <div class="counter-chip <?=$lowStockCount>0?'warning':''?>">
+            <small>Low Stock</small>
+            <strong><?=$lowStockCount?></strong>
+        </div>
+        <div class="counter-chip <?=$outOfStockCount>0?'danger':''?>">
+            <small>Out of Stock</small>
+            <strong><?=$outOfStockCount?></strong>
+        </div>
+    </section>
+
+    <section class="panel product-create">
+        <details>
+            <summary><strong>＋ Add a New Product</strong><span>Click to open catalog creation desk</span></summary>
+            <form method="post" action="/products/create" enctype="multipart/form-data" class="form-grid" style="margin-top:16px;">
+                <input type="hidden" name="_token" value="<?=csrf_token()?>">
+                <label>Product Name<input name="name" required placeholder="e.g. Royal Jonbiri Bridal Necklace"></label>
+                <label>Slug (URL)<input name="slug" placeholder="royal-jonbiri-necklace"></label>
+                <label>Unique SKU<input name="sku" required placeholder="MONI-JB01" style="font-family:monospace;text-transform:uppercase;"></label>
+                <label>Category / Collection
+                    <select name="category_id" required>
+                        <option value="">Select Category</option>
+                        <?php foreach($categories as $cat): ?>
+                            <option value="<?=e($cat['id'])?>"><?=e($cat['name'])?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </label>
+                <label>Selling Price in ₹<input name="price" type="number" min="0" required placeholder="1999"></label>
+                <label>Compare-At Price in ₹ (Optional)<input name="compare_at" type="number" min="0" placeholder="2499"></label>
+                <label>Opening Stock<input name="stock" type="number" min="0" value="10" required></label>
+                <label>Low-Stock Alert Qty<input name="low_stock_at" type="number" min="0" value="5" required></label>
+                <label>Metal / Finish<input name="metal" placeholder="Gold Finish"></label>
+                <label>Occasion / Theme<input name="occasion" placeholder="Bridal, Festive, Daily"></label>
+                <label class="wide">YouTube Video URL (Optional)<input name="youtube_url" type="url" placeholder="https://www.youtube.com/watch?v=..."></label>
+
+                <!-- Media Desk with Gallery, Upload, and URL Support -->
+                <?php render_media_desk([], 'create'); ?>
+
+                <label class="wide">Craftsmanship & Product Description<textarea name="description" required rows="3" placeholder="Detailed styling notes, dimensions, and craftsmanship..."></textarea></label>
+                <label><input type="checkbox" name="featured" value="1"> ★ Mark as Featured / Best Seller</label>
+                <label><input type="checkbox" name="is_new" value="1" checked> Sparkle New Arrival</label>
+                
+                <div class="wide form-actions" style="margin-top:10px;">
+                    <button type="submit" style="padding:12px 24px;font-size:14px;">Create Product</button>
+                </div>
+            </form>
+        </details>
+    </section>
+
+    <section class="panel">
+        <div class="panel-heading">
+            <div>
+                <h3>Product Directory</h3>
+                <p><?=$totalCount?> product<?=$totalCount===1?'':'s'?> currently in catalog</p>
+            </div>
+        </div>
+
+        <form method="get" action="/products" class="catalogue-filters">
+            <label>Search products<input type="search" name="q" value="<?=e($q)?>" placeholder="Search name or SKU..."></label>
+            <label>Collection
+                <select name="category">
+                    <option value="">All Categories</option>
+                    <?php foreach($categories as $cat): ?>
+                        <option value="<?=e($cat['id'])?>" <?=$category===$cat['id']?'selected':''?>><?=e($cat['name'])?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <button type="submit">Filter</button>
+            <a class="button-secondary" href="/products">Reset</a>
+        </form>
+
+        <div class="product-table-card">
+            <table class="product-table">
+                <thead>
+                    <tr>
+                        <th>Product Details</th>
+                        <th>Collection</th>
+                        <th>Pricing</th>
+                        <th>Stock Health</th>
+                        <th>Status</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach($items as $item): 
+                        $images = json_decode((string)$item['images'], true) ?: [];
+                        $thumb = !empty($images[0]) ? $images[0] : null;
+                        $stock = (int)$item['stock'];
+                        $lowStock = (int)$item['lowStockAt'];
+                        $price = (int)$item['price'];
+                        $compareAt = $item['compareAt'] !== null ? (int)$item['compareAt'] : null;
+                    ?>
+                        <tr>
+                            <td>
+                                <div class="product-cell">
+                                    <div class="product-thumb-wrap">
+                                        <?php if ($thumb): ?>
+                                            <img src="<?=e($thumb)?>" alt="" loading="lazy">
+                                        <?php else: ?>
+                                            <div class="product-placeholder-wrap">No photo</div>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div class="product-info-wrap">
+                                        <a class="product-title-link" href="/products/edit?id=<?=urlencode($item['id'])?>"><?=e($item['name'])?></a>
+                                        <div class="product-tags">
+                                            <span class="sku-badge"><?=e($item['sku'])?></span>
+                                            <?php if ($item['metal']): ?>
+                                                <span class="tag-pill gold"><?=e($item['metal'])?></span>
+                                            <?php endif; ?>
+                                            <?php if ($item['occasion']): ?>
+                                                <span class="tag-pill"><?=e($item['occasion'])?></span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <strong><?=e($item['category'])?></strong>
+                            </td>
+                            <td>
+                                <div class="price-box">
+                                    <span class="price-current">₹<?=number_format($price)?></span>
+                                    <?php if ($compareAt && $compareAt > $price): ?>
+                                        <span class="price-compare">₹<?=number_format($compareAt)?></span>
+                                        <span class="discount-pill">-<?=round((1 - $price / $compareAt) * 100)?>%</span>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                            <td>
+                                <?php if ($stock === 0): ?>
+                                    <span class="stock-pill stock-out">● Out of Stock (0)</span>
+                                <?php elseif ($stock <= $lowStock): ?>
+                                    <span class="stock-pill stock-low">⚠ Low Stock (<?=$stock?>)</span>
+                                <?php else: ?>
+                                    <span class="stock-pill stock-in">✓ In Stock (<?=$stock?>)</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <div>
+                                    <span class="status-pill <?=$item['active']?'status-live':'status-hidden'?>">
+                                        <?=$item['active']?'Live':'Hidden'?>
+                                    </span>
+                                    <?php if ($item['isFeatured']): ?>
+                                        <div class="badge-featured">★ Featured</div>
+                                    <?php endif; ?>
+                                    <?php if ($item['isNew']): ?>
+                                        <div style="font-size:10px;color:#1d4ed8;font-weight:700;margin-top:2px;">New Arrival</div>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                            <td style="text-align:right;">
+                                <div class="actions-cell" style="justify-content:flex-end;">
+                                    <a class="btn-action-edit" href="/products/edit?id=<?=urlencode($item['id'])?>">✏ Edit</a>
+                                    <a class="btn-action-view" target="_blank" href="<?=e((string)env_value('STOREFRONT_URL','https://www.monimala.com'))?>/products/<?=e($item['slug'])?>">↗ Store</a>
+                                </div>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if (!$items): ?>
+                        <tr><td colspan="6" class="empty-state">No products found matching the criteria.</td></tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <?php
 }
 
 function product_edit_page(): void {
-    $id=trim((string)($_GET['id']??'')); $stmt=db()->prepare('SELECT * FROM Product WHERE id=? LIMIT 1'); $stmt->execute([$id]); $item=$stmt->fetch();
-    if(!$item){http_response_code(404); echo '<section class="panel"><h3>Product not found</h3><a class="button-secondary" href="/products">Back to products</a></section>'; return;}
-    $categories=db()->query('SELECT id,name FROM Category WHERE active=1 OR id=' . db()->quote($item['categoryId']) . ' ORDER BY name')->fetchAll(); $colors=json_decode((string)($item['colors']??''),true)?:[]; $sizes=json_decode((string)($item['sizes']??''),true)?:[];
-    ?><div class="page-actions"><a class="button-secondary" href="/products">← Back to products</a><a class="button-secondary" target="_blank" href="<?=e((string)env_value('STOREFRONT_URL','https://www.monimala.com'))?>/products/<?=e($item['slug'])?>">View storefront ↗</a></div><section class="panel"><h3>Edit <?=e($item['name'])?></h3><p>Update product information here. Stock quantities remain protected in the Inventory section.</p><form method="post" action="/products/update" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="product_id" value="<?=e($item['id'])?>"><label>Name<input name="name" value="<?=e($item['name'])?>" required></label><label>Slug<input name="slug" value="<?=e($item['slug'])?>" required></label><label>SKU<input name="sku" value="<?=e($item['sku'])?>" required></label><label>Category<select name="category_id" required><?php foreach($categories as $cat):?><option value="<?=e($cat['id'])?>" <?=$cat['id']===$item['categoryId']?'selected':''?>><?=e($cat['name'])?></option><?php endforeach?></select></label><label>Selling price ₹<input name="price" type="number" min="0" value="<?=e($item['price'])?>" required></label><label>Compare-at price ₹<input name="compare_at" type="number" min="0" value="<?=e($item['compareAt']??'')?>"></label><label>Low-stock alert<input name="low_stock_at" type="number" min="0" value="<?=e($item['lowStockAt'])?>" required></label><label>Storefront rank<input name="position" type="number" min="0" value="<?=e($item['position'])?>"></label><label>Metal/finish<input name="metal" value="<?=e($item['metal']??'')?>"></label><label>Occasion<input name="occasion" value="<?=e($item['occasion']??'')?>"></label><label class="wide">Colours, comma separated<input name="colors" value="<?=e(implode(', ',$colors))?>"></label><label class="wide">Sizes, comma separated<input name="sizes" value="<?=e(implode(', ',$sizes))?>"></label><label class="wide">YouTube product video URL<input name="youtube_url" type="url" value="<?=e($item['youtubeUrl']??'')?>"></label><label class="wide">Description<textarea name="description"><?=e($item['description']??'')?></textarea></label><label><input type="checkbox" name="featured" <?=$item['isFeatured']?'checked':''?>> Best seller / featured</label><label><input type="checkbox" name="is_new" <?=$item['isNew']?'checked':''?>> New arrival</label><label><input type="checkbox" name="active" <?=$item['active']?'checked':''?>> Visible on storefront</label><div class="wide form-actions"><button>Save product changes</button><a class="button-secondary" href="/products">Cancel</a></div></form></section><?php
+    $id=trim((string)($_GET['id']??'')); 
+    $stmt=db()->prepare('SELECT * FROM Product WHERE id=? LIMIT 1'); 
+    $stmt->execute([$id]); 
+    $item=$stmt->fetch();
+    if(!$item){
+        http_response_code(404); 
+        echo '<section class="panel"><h3>Product not found</h3><a class="button-secondary" href="/products">Back to products</a></section>'; 
+        return;
+    }
+    $categories=db()->query('SELECT id,name FROM Category WHERE active=1 OR id=' . db()->quote($item['categoryId']) . ' ORDER BY name')->fetchAll(); 
+    $colors=json_decode((string)($item['colors']??''),true)?:[]; 
+    $sizes=json_decode((string)($item['sizes']??''),true)?:[];
+    $images=json_decode((string)($item['images']??''),true)?:[];
+    ?>
+    <div class="page-actions" style="margin-bottom:16px;display:flex;gap:10px;">
+        <a class="button-secondary" href="/products">← Back to Products Directory</a>
+        <a class="button-secondary" target="_blank" href="<?=e((string)env_value('STOREFRONT_URL','https://www.monimala.com'))?>/products/<?=e($item['slug'])?>">View on Live Storefront ↗</a>
+    </div>
+
+    <section class="panel">
+        <div class="panel-heading">
+            <div>
+                <h3>Edit <?=e($item['name'])?></h3>
+                <p>Update product specifications, prices, and media gallery below.</p>
+            </div>
+            <span class="status-pill <?=$item['active']?'status-live':'status-hidden'?>">
+                <?=$item['active']?'Live on Storefront':'Hidden (Draft)'?>
+            </span>
+        </div>
+
+        <form method="post" action="/products/update" enctype="multipart/form-data" class="form-grid" style="margin-top:16px;">
+            <input type="hidden" name="_token" value="<?=csrf_token()?>">
+            <input type="hidden" name="product_id" value="<?=e($item['id'])?>">
+
+            <label>Product Name<input name="name" value="<?=e($item['name'])?>" required></label>
+            <label>Slug (URL)<input name="slug" value="<?=e($item['slug'])?>" required></label>
+            <label>SKU<input name="sku" value="<?=e($item['sku'])?>" required style="font-family:monospace;text-transform:uppercase;"></label>
+            <label>Category / Collection
+                <select name="category_id" required>
+                    <?php foreach($categories as $cat): ?>
+                        <option value="<?=e($cat['id'])?>" <?=$cat['id']===$item['categoryId']?'selected':''?>><?=e($cat['name'])?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label>Selling Price (₹)<input name="price" type="number" min="0" value="<?=e($item['price'])?>" required></label>
+            <label>Compare-At Price (₹, Optional)<input name="compare_at" type="number" min="0" value="<?=e($item['compareAt']??'')?>"></label>
+            <label>Low-Stock Alert Level<input name="low_stock_at" type="number" min="0" value="<?=e($item['lowStockAt'])?>" required></label>
+            <label>Storefront Ranking Rank<input name="position" type="number" min="0" value="<?=e($item['position'])?>"></label>
+            <label>Metal / Finish<input name="metal" value="<?=e($item['metal']??'')?>"></label>
+            <label>Occasion / Theme<input name="occasion" value="<?=e($item['occasion']??'')?>"></label>
+            <label class="wide">Available Colors (Comma separated)<input name="colors" value="<?=e(implode(', ',$colors))?>"></label>
+            <label class="wide">Available Sizes (Comma separated, e.g. 2.2, 2.4, 2.6)<input name="sizes" value="<?=e(implode(', ',$sizes))?>"></label>
+            <label class="wide">YouTube Product Video URL<input name="youtube_url" type="url" value="<?=e($item['youtubeUrl']??'')?>"></label>
+
+            <!-- Media Desk with Gallery, Upload, and URL Support -->
+            <?php render_media_desk($images, 'edit'); ?>
+
+            <label class="wide">Product Description<textarea name="description" rows="4"><?=e($item['description']??'')?></textarea></label>
+            
+            <label><input type="checkbox" name="featured" value="1" <?=$item['isFeatured']?'checked':''?>> ★ Best Seller / Featured Badge</label>
+            <label><input type="checkbox" name="is_new" value="1" <?=$item['isNew']?'checked':''?>> Sparkle New Arrival</label>
+            <label><input type="checkbox" name="active" value="1" <?=$item['active']?'checked':''?>> Visible on Storefront</label>
+
+            <div class="wide form-actions" style="margin-top:16px;display:flex;gap:12px;">
+                <button type="submit" style="padding:12px 24px;font-size:14px;">Save Product Changes</button>
+                <a class="button-secondary" href="/products" style="padding:12px 20px;">Cancel</a>
+            </div>
+        </form>
+    </section>
+    <?php
 }
-function inventory_page(): void { $items=db()->query('SELECT p.id,p.sku,p.name,p.stock,p.lowStockAt,c.name category FROM Product p JOIN Category c ON c.id=p.categoryId WHERE p.active=1 ORDER BY p.stock ASC')->fetchAll(); ?><section class="panel"><h3>Stock ledger</h3><table><thead><tr><th>SKU</th><th>Product</th><th>Category</th><th>On hand</th><th>Adjustment</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><?=e($item['sku'])?></td><td><?=e($item['name'])?></td><td><?=e($item['category'])?></td><td class="<?=((int)$item['stock']<=(int)$item['lowStockAt'])?'danger':''?>"><?=e($item['stock'])?></td><td><form method="post" action="/inventory/adjust" class="inline"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="product_id" value="<?=e($item['id'])?>"><input name="quantity" type="number" required placeholder="+/- qty"><input name="reason" required placeholder="Reason"><input name="reference" placeholder="Reference"><button>Post</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
-function orders_page(): void { $orders=db()->query('SELECT id,trackingCode,email,total,status,paymentStatus,createdAt FROM `Order` ORDER BY createdAt DESC LIMIT 100')->fetchAll(); ?><section class="panel"><h3>Latest orders</h3><table><thead><tr><th>Order</th><th>Customer</th><th>Total</th><th>Payment</th><th>Fulfilment</th></tr></thead><tbody><?php foreach($orders as $order):?><tr><td><?=e($order['trackingCode'])?><small><?=e($order['createdAt'])?></small></td><td><?=e($order['email'])?></td><td>₹<?=number_format((int)$order['total'])?></td><td><?=e($order['paymentStatus'])?></td><td><form method="post" action="/orders/status" class="inline"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="order_id" value="<?=e($order['id'])?>"><select name="status"><?php foreach(['PENDING','PAID','PACKED','SHIPPED','DELIVERED','CANCELLED'] as $s):?><option <?=$s===$order['status']?'selected':''?>><?=$s?></option><?php endforeach?></select><button>Update</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
+function inventory_page(): void {
+    $items=db()->query('SELECT p.id,p.sku,p.name,p.stock,p.lowStockAt,c.name category FROM Product p JOIN Category c ON c.id=p.categoryId WHERE p.active=1 ORDER BY p.stock ASC')->fetchAll();
+    ?>
+    <section class="panel">
+        <div class="panel-heading">
+            <div>
+                <h3>Current Stock Ledger</h3>
+                <p>Live inventory on hand and safety stock alert levels</p>
+            </div>
+        </div>
+        <table>
+            <thead><tr><th>SKU</th><th>Product</th><th>Category</th><th>On hand</th><th>Quick Stock Adjustment</th></tr></thead>
+            <tbody>
+                <?php foreach($items as $item): ?>
+                    <tr>
+                        <td><code><?=e($item['sku'])?></code></td>
+                        <td><?=e($item['name'])?></td>
+                        <td><?=e($item['category'])?></td>
+                        <td class="<?=((int)$item['stock']<=(int)$item['lowStockAt'])?'danger':''?>">
+                            <strong><?=e($item['stock'])?></strong>
+                            <?php if((int)$item['stock']<=(int)$item['lowStockAt']): ?>
+                                <small class="danger">Low (&le;<?=e($item['lowStockAt'])?>)</small>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <form method="post" action="/inventory/adjust" class="inline">
+                                <input type="hidden" name="_token" value="<?=csrf_token()?>">
+                                <input type="hidden" name="product_id" value="<?=e($item['id'])?>">
+                                <input name="quantity" type="number" required placeholder="+/- qty" style="width:85px;">
+                                <select name="reason" style="width:140px;">
+                                    <option value="RESTOCK">Restock</option>
+                                    <option value="CUSTOMER_RETURN">Return</option>
+                                    <option value="DAMAGE_WRITE_OFF">Damaged</option>
+                                    <option value="AUDIT_CORRECTION">Audit</option>
+                                </select>
+                                <input name="reference" placeholder="Ref (e.g. PO#)" style="width:110px;">
+                                <button>Post</button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </section>
+    <?php
+}
+
+function inventory_movements_page(): void {
+    $logs = db()->query("SELECT m.id, m.quantity, m.reason, m.reference, m.createdAt, p.name productName, p.sku, u.name actorName, u.email actorEmail FROM InventoryMovement m JOIN Product p ON p.id = m.productId LEFT JOIN User u ON u.id = m.actorId ORDER BY m.createdAt DESC LIMIT 35")->fetchAll();
+    ?>
+    <section class="panel">
+        <div class="panel-heading">
+            <div>
+                <h3>Stock Movement Audit Ledger</h3>
+                <p>Recent auditable stock adjustments, order reservations, and inventory events</p>
+            </div>
+        </div>
+        <table>
+            <thead>
+                <tr><th>Date & Time</th><th>Product</th><th>Change</th><th>Reason</th><th>Reference</th><th>Staff / Event</th></tr>
+            </thead>
+            <tbody>
+                <?php foreach ($logs as $log): 
+                    $isPositive = (int)$log['quantity'] > 0;
+                ?>
+                    <tr>
+                        <td><small><?=e(date('M j, Y H:i', strtotime($log['createdAt'])))?></small></td>
+                        <td><strong><?=e($log['productName'])?></strong><small>SKU: <?=e($log['sku'])?></small></td>
+                        <td>
+                            <strong class="<?=$isPositive ? 'stock-plus' : 'stock-minus'?>">
+                                <?=$isPositive ? '+' . $log['quantity'] : $log['quantity']?>
+                            </strong>
+                        </td>
+                        <td><span class="reason-chip"><?=e($log['reason'])?></span></td>
+                        <td><?=e($log['reference'] ?: '—')?></td>
+                        <td><small><?=e($log['actorName'] ?: $log['actorEmail'] ?: 'Customer Order')?></small></td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$logs): ?>
+                    <tr><td colSpan="6" class="empty-state">No inventory movements recorded yet.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </section>
+    <?php
+}
+
+function orders_page(): void {
+    $status = trim((string)($_GET['status'] ?? 'ALL'));
+    $q = trim((string)($_GET['q'] ?? ''));
+    $sql = 'SELECT id,trackingCode,email,phone,address,total,status,paymentStatus,createdAt FROM `Order` WHERE 1=1';
+    $params = [];
+    if ($status !== '' && $status !== 'ALL') {
+        $sql .= ' AND status = ?';
+        $params[] = $status;
+    }
+    if ($q !== '') {
+        $sql .= ' AND (trackingCode LIKE ? OR email LIKE ? OR phone LIKE ?)';
+        $params[] = "%$q%"; $params[] = "%$q%"; $params[] = "%$q%";
+    }
+    $sql .= ' ORDER BY createdAt DESC LIMIT 100';
+    $stmt = db()->prepare($sql);
+    $stmt->execute($params);
+    $orders = $stmt->fetchAll();
+
+    $orderIds = array_column($orders, 'id');
+    $itemsByOrder = [];
+    if ($orderIds) {
+        $inQuery = implode(',', array_fill(0, count($orderIds), '?'));
+        $itemStmt = db()->prepare("SELECT oi.orderId, oi.quantity, oi.price, oi.color, oi.size, p.name, p.sku FROM OrderItem oi JOIN Product p ON p.id = oi.productId WHERE oi.orderId IN ($inQuery)");
+        $itemStmt->execute($orderIds);
+        foreach ($itemStmt->fetchAll() as $row) {
+            $itemsByOrder[$row['orderId']][] = $row;
+        }
+    }
+    ?>
+    <section class="panel">
+        <div class="panel-heading">
+            <div>
+                <h3>Store Orders (<?=count($orders)?>)</h3>
+                <p>Inspect customer delivery addresses, view ordered items & attributes, and update fulfillment</p>
+            </div>
+        </div>
+        <form method="get" action="/orders" class="catalogue-filters">
+            <label>Search orders
+                <input type="search" name="q" value="<?=e($q)?>" placeholder="Tracking code, email, phone">
+            </label>
+            <label>Fulfillment status
+                <select name="status">
+                    <option value="ALL" <?=$status==='ALL'?'selected':''?>>All Statuses</option>
+                    <?php foreach (['PENDING','PAID','PACKED','SHIPPED','DELIVERED','CANCELLED'] as $st): ?>
+                        <option value="<?=$st?>" <?=$status===$st?'selected':''?>><?=$st?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <button>Filter</button>
+            <a class="button-secondary" href="/orders">Clear</a>
+        </form>
+
+        <div class="orders-accordion">
+            <?php foreach ($orders as $order): 
+                $items = $itemsByOrder[$order['id']] ?? [];
+                $cleanPhone = preg_replace('/[^0-9]/', '', $order['phone']);
+            ?>
+                <details class="order-detail-card" id="order-<?=e($order['id'])?>">
+                    <summary class="order-header-row">
+                        <div>
+                            <strong class="order-code"><?=e($order['trackingCode'])?></strong>
+                            <span class="status-badge status-<?=strtolower(e($order['status']))?>"><?=e($order['status'])?></span>
+                            <span class="status-badge status-pay-<?=strtolower(e($order['paymentStatus']))?>"><?=e($order['paymentStatus'])?></span>
+                        </div>
+                        <div class="order-summary-meta">
+                            <span><?=e($order['email'])?></span>
+                            <strong>₹<?=number_format((int)$order['total'])?></strong>
+                            <small><?=e(date('M j, Y H:i', strtotime($order['createdAt'])))?></small>
+                        </div>
+                    </summary>
+
+                    <div class="order-expanded-content">
+                        <div class="order-info-grid">
+                            <div class="info-block">
+                                <h4>Customer Contact & Shipping Address</h4>
+                                <p><strong>Email:</strong> <?=e($order['email'])?></p>
+                                <p><strong>Phone:</strong> <?=e($order['phone'])?></p>
+                                <p><strong>Delivery Address:</strong></p>
+                                <blockquote class="address-box"><?=nl2br(e($order['address']))?></blockquote>
+                                <div class="action-buttons-row">
+                                    <?php if ($cleanPhone): ?>
+                                        <a class="button-whatsapp" target="_blank" href="https://wa.me/<?=str_starts_with($cleanPhone,'91')?$cleanPhone:'91'.$cleanPhone?>?text=<?=urlencode('Hello! This is Monimala Store regarding your order ' . $order['trackingCode'] . '.')?>">
+                                            Notify via WhatsApp ↗
+                                        </a>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+
+                            <div class="info-block">
+                                <h4>Fulfillment Actions</h4>
+                                <form method="post" action="/orders/status" class="form-status-update">
+                                    <input type="hidden" name="_token" value="<?=csrf_token()?>">
+                                    <input type="hidden" name="order_id" value="<?=e($order['id'])?>">
+                                    <label>Update Status:
+                                        <select name="status">
+                                            <?php foreach (['PENDING','PAID','PACKED','SHIPPED','DELIVERED','CANCELLED'] as $s): ?>
+                                                <option value="<?=$s?>" <?=$s===$order['status']?'selected':''?>><?=$s?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </label>
+                                    <button style="margin-top:8px;">Update Status</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="order-items-block">
+                            <h4>Ordered Items (<?=count($items)?>)</h4>
+                            <table>
+                                <thead>
+                                    <tr><th>Product Name</th><th>SKU</th><th>Chosen Options</th><th>Quantity</th><th>Unit Price</th><th>Line Total</th></tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($items as $item): ?>
+                                        <tr>
+                                            <td><strong><?=e($item['name'])?></strong></td>
+                                            <td><code><?=e($item['sku'])?></code></td>
+                                            <td>
+                                                <?=($item['color'] ? '<span class="reason-chip">Color: ' . e($item['color']) . '</span> ' : '')?>
+                                                <?=($item['size'] ? '<span class="reason-chip">Size: ' . e($item['size']) . '</span>' : '')?>
+                                                <?=(!$item['color'] && !$item['size'] ? '—' : '')?>
+                                            </td>
+                                            <td><?=e($item['quantity'])?></td>
+                                            <td>₹<?=number_format((int)$item['price'])?></td>
+                                            <td><strong>₹<?=number_format((int)($item['price'] * $item['quantity']))?></strong></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </details>
+            <?php endforeach; ?>
+            <?php if (!$orders): ?>
+                <p class="empty-state">No orders match these criteria.</p>
+            <?php endif; ?>
+        </div>
+    </section>
+    <?php
+}
+
+function customers_page(): void {
+    $customers = db()->query("SELECT u.id, u.name, u.email, u.phone, u.createdAt, COUNT(o.id) as orderCount, COALESCE(SUM(CASE WHEN o.paymentStatus='PAID' THEN o.total ELSE 0 END), 0) as totalSpent FROM User u LEFT JOIN `Order` o ON o.userId = u.id WHERE u.role='CUSTOMER' GROUP BY u.id, u.name, u.email, u.phone, u.createdAt ORDER BY u.createdAt DESC")->fetchAll();
+    ?>
+    <section class="panel">
+        <div class="panel-heading">
+            <div>
+                <h3>Customer Directory (<?=count($customers)?>)</h3>
+                <p>Registered customer profiles, ordering frequency, and customer lifetime value</p>
+            </div>
+        </div>
+        <table>
+            <thead>
+                <tr><th>Customer Name</th><th>Contact</th><th>Total Orders</th><th>Paid Lifetime Spend</th><th>Member Since</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+                <?php foreach ($customers as $c): 
+                    $cleanPhone = preg_replace('/[^0-9]/', '', (string)$c['phone']);
+                ?>
+                    <tr>
+                        <td><strong><?=e($c['name'])?></strong></td>
+                        <td>
+                            <span><?=e($c['email'])?></span>
+                            <small><?=e($c['phone'] ?: 'No phone number')?></small>
+                        </td>
+                        <td><strong><?=e($c['orderCount'])?></strong></td>
+                        <td><strong>₹<?=number_format((int)$c['totalSpent'])?></strong></td>
+                        <td><?=e(date('M j, Y', strtotime($c['createdAt'])))?></td>
+                        <td>
+                            <a class="button-secondary" href="mailto:<?=e($c['email'])?>">Email</a>
+                            <?php if ($cleanPhone): ?>
+                                <a class="button-whatsapp" target="_blank" href="https://wa.me/<?=str_starts_with($cleanPhone,'91')?$cleanPhone:'91'.$cleanPhone?>">WhatsApp</a>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$customers): ?>
+                    <tr><td colSpan="6" class="empty-state">No customers registered yet.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </section>
+    <?php
+}
+
+function coupons_page(): void {
+    $coupons = db()->query("SELECT id, code, percent, active, expiresAt FROM Coupon ORDER BY id DESC")->fetchAll();
+    ?>
+    <section class="panel">
+        <div class="panel-heading">
+            <div>
+                <h3>Create Promotional Coupon</h3>
+                <p>Add discount percentage coupons for seasonal offers or marketing campaigns</p>
+            </div>
+        </div>
+        <form method="post" action="/coupons/create" class="form-grid">
+            <input type="hidden" name="_token" value="<?=csrf_token()?>">
+            <label>Coupon Code
+                <input name="code" required placeholder="e.g. BIHU15, FESTIVE20" style="text-transform: uppercase;">
+            </label>
+            <label>Discount (%)
+                <input name="percent" type="number" min="1" max="100" required value="10">
+            </label>
+            <label>Expiry Date (Optional)
+                <input name="expires_at" type="date">
+            </label>
+            <button>Issue Coupon</button>
+        </form>
+    </section>
+
+    <section class="panel">
+        <div class="panel-heading">
+            <div>
+                <h3>Active Store Coupons (<?=count($coupons)?>)</h3>
+                <p>Eligible promotional codes for checkout discounts</p>
+            </div>
+        </div>
+        <table>
+            <thead>
+                <tr><th>Code</th><th>Discount</th><th>Status</th><th>Expiry</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+                <?php foreach ($coupons as $coupon): 
+                    $isExpired = $coupon['expiresAt'] && strtotime($coupon['expiresAt']) < time();
+                ?>
+                    <tr>
+                        <td><strong style="font-family: monospace; font-size: 15px; color:#611320;"><?=e($coupon['code'])?></strong></td>
+                        <td><strong><?=e($coupon['percent'])?>% OFF</strong></td>
+                        <td>
+                            <span class="status <?=$coupon['active'] && !$isExpired ? 'live' : 'draft'?>">
+                                <?=$coupon['active'] && !$isExpired ? 'Active' : ($isExpired ? 'Expired' : 'Disabled')?>
+                            </span>
+                        </td>
+                        <td><?=e($coupon['expiresAt'] ? date('M j, Y', strtotime($coupon['expiresAt'])) : 'Never expires')?></td>
+                        <td>
+                            <form method="post" action="/coupons/toggle" style="display:inline-block;">
+                                <input type="hidden" name="_token" value="<?=csrf_token()?>">
+                                <input type="hidden" name="coupon_id" value="<?=e($coupon['id'])?>">
+                                <input type="hidden" name="active" value="<?=$coupon['active'] ? '0' : '1'?>">
+                                <button class="button-secondary"><?=$coupon['active'] ? 'Disable' : 'Enable'?></button>
+                            </form>
+                            <form method="post" action="/coupons/delete" style="display:inline-block; margin-left:6px;" onsubmit="return confirm('Delete coupon <?=e($coupon['code'])?>?');">
+                                <input type="hidden" name="_token" value="<?=csrf_token()?>">
+                                <input type="hidden" name="coupon_id" value="<?=e($coupon['id'])?>">
+                                <button style="background: #fee4e2; color: #b42318; border: 1px solid #fecdca;">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (!$coupons): ?>
+                    <tr><td colSpan="5" class="empty-state">No coupons created yet.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </section>
+    <?php
+}

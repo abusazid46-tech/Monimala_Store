@@ -10,3 +10,6 @@ work
 outputs
 .vercel
 .env*
+hostinger-deploy.zip
+admin-php.zip
+tsconfig.tsbuildinfo

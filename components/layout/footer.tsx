@@ -1,9 +1,16 @@
 import Link from "next/link";
-import { Facebook, Instagram, Mail, MapPin, MessageCircle, Phone } from "lucide-react";
+import { Facebook, Instagram, Mail, MapPin, MessageCircle, Phone, Youtube } from "lucide-react";
 import { categories } from "@/lib/catalog";
 
 export function Footer() {
-  const whatsAppNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919999999999";
+  const whatsAppNumber = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919282713731";
+  const instagramUrl =
+    process.env.NEXT_PUBLIC_INSTAGRAM_URL ||
+    "https://www.instagram.com/monimalastore?stkn=MW8xa2l4OHp4bWN2dA==";
+  const facebookUrl =
+    process.env.NEXT_PUBLIC_FACEBOOK_URL || "https://www.facebook.com/share/1Dk9XwxTnw/";
+  const youtubeUrl =
+    process.env.NEXT_PUBLIC_YOUTUBE_URL || "https://www.youtube.com/@Monimala-AssameseJewellery";
 
   return (
     <footer className="mt-12 bg-charcoal text-cream">
@@ -15,16 +22,39 @@ export function Footer() {
             delivered to the Assamese community worldwide.
           </p>
           <div className="mt-5 flex gap-3">
-            <Link href="#" aria-label="Instagram" className="rounded-full bg-white/10 p-2">
+            <a
+              href={instagramUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Instagram"
+              className="rounded-full bg-white/10 p-2 transition hover:bg-white/20"
+            >
               <Instagram className="h-4 w-4" />
-            </Link>
-            <Link href="#" aria-label="Facebook" className="rounded-full bg-white/10 p-2">
+            </a>
+            <a
+              href={facebookUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Facebook"
+              className="rounded-full bg-white/10 p-2 transition hover:bg-white/20"
+            >
               <Facebook className="h-4 w-4" />
-            </Link>
+            </a>
+            <a
+              href={youtubeUrl}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="YouTube"
+              className="rounded-full bg-white/10 p-2 transition hover:bg-white/20"
+            >
+              <Youtube className="h-4 w-4" />
+            </a>
             <a
               href={`https://wa.me/${whatsAppNumber}`}
+              target="_blank"
+              rel="noreferrer"
               aria-label="WhatsApp"
-              className="rounded-full bg-white/10 p-2"
+              className="rounded-full bg-white/10 p-2 transition hover:bg-white/20"
             >
               <MessageCircle className="h-4 w-4" />
             </a>
@@ -56,10 +86,19 @@ export function Footer() {
               <MapPin className="h-4 w-4 text-gold" />
               Guwahati, Assam
             </span>
-            <span className="flex gap-2">
+            <a href="tel:+919282713731" className="flex gap-2 transition hover:text-cream">
               <Phone className="h-4 w-4 text-gold" />
-              +91 99999 99999
-            </span>
+              +91 92827 13731
+            </a>
+            <a
+              href={`https://wa.me/${whatsAppNumber}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex gap-2 transition hover:text-cream"
+            >
+              <MessageCircle className="h-4 w-4 text-gold" />
+              WhatsApp: +91 92827 13731
+            </a>
             <span className="flex gap-2">
               <Mail className="h-4 w-4 text-gold" />
               care@monimalastore.com

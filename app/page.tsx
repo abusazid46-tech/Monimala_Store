@@ -101,10 +101,35 @@ export default async function HomePage() {
         <h2 id="social-title" className="mt-2 font-heading text-3xl sm:text-4xl">Follow Monimala</h2>
         <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-white/75">New arrivals, styling inspiration, product videos and direct shopping support.</p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <SocialLink href={process.env.NEXT_PUBLIC_INSTAGRAM_URL || "https://instagram.com"} label="Instagram" icon={Instagram} />
-          <SocialLink href={process.env.NEXT_PUBLIC_FACEBOOK_URL || "https://facebook.com"} label="Facebook" icon={Facebook} />
-          <SocialLink href={process.env.NEXT_PUBLIC_YOUTUBE_URL || "https://youtube.com"} label="YouTube" icon={Youtube} />
-          <SocialLink href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919999999999"}`} label="WhatsApp" icon={MessageCircle} />
+          <SocialLink
+            href={
+              process.env.NEXT_PUBLIC_INSTAGRAM_URL ||
+              "https://www.instagram.com/monimalastore?stkn=MW8xa2l4OHp4bWN2dA=="
+            }
+            label="Instagram"
+            icon={Instagram}
+          />
+          <SocialLink
+            href={
+              process.env.NEXT_PUBLIC_FACEBOOK_URL ||
+              "https://www.facebook.com/share/1Dk9XwxTnw/"
+            }
+            label="Facebook"
+            icon={Facebook}
+          />
+          <SocialLink
+            href={
+              process.env.NEXT_PUBLIC_YOUTUBE_URL ||
+              "https://www.youtube.com/@Monimala-AssameseJewellery"
+            }
+            label="YouTube"
+            icon={Youtube}
+          />
+          <SocialLink
+            href={`https://wa.me/${process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "919282713731"}`}
+            label="WhatsApp"
+            icon={MessageCircle}
+          />
         </div>
       </section>
     </main>

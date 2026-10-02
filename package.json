@@ -10,7 +10,9 @@
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
     "db:push": "prisma db push --skip-generate",
-    "db:seed": "node prisma/seed.mjs"
+    "db:seed": "node prisma/seed.mjs",
+    "package:hostinger": "node scripts/prepare-hostinger.mjs",
+    "build:hostinger": "next build && node scripts/prepare-hostinger.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.8.2",

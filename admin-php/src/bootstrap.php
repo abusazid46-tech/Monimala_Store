@@ -42,6 +42,8 @@ function base_path(): string { return rtrim(env_value('APP_BASE_PATH', '') ?: ''
 function url(string $path = '/'): string { return base_path() . ($path === '/' ? '/dashboard' : '/' . ltrim($path, '/')); }
 function require_admin(): void { if (!admin()) { header('Location: ' . url('/login')); exit; } }
 function redirect(string $path): never { header('Location: ' . url($path)); exit; }
+function flash_set(string $type, string $message): void { $_SESSION['flash'] = ['type' => $type, 'message' => $message]; }
+function flash_get(): ?array { $f = $_SESSION['flash'] ?? null; unset($_SESSION['flash']); return $f; }
 
 if (base_path()) {
     ob_start(fn(string $html): string => str_replace(

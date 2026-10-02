@@ -69,7 +69,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       addressRegion: "Assam",
       addressCountry: "IN"
     },
-    sameAs: ["https://instagram.com", "https://facebook.com"]
+    sameAs: [
+      process.env.NEXT_PUBLIC_INSTAGRAM_URL ||
+        "https://www.instagram.com/monimalastore?stkn=MW8xa2l4OHp4bWN2dA==",
+      process.env.NEXT_PUBLIC_FACEBOOK_URL || "https://www.facebook.com/share/1Dk9XwxTnw/",
+      process.env.NEXT_PUBLIC_YOUTUBE_URL ||
+        "https://www.youtube.com/@Monimala-AssameseJewellery"
+    ],
+    telephone: "+91 92827 13731"
   };
 
   return (
