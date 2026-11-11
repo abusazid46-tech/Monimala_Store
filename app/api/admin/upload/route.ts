@@ -27,7 +27,8 @@ export async function POST(request: NextRequest) {
       const buffer = Buffer.from(bytes);
 
       const origExt = path.extname(file.name).toLowerCase();
-      const cleanExt = [".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(origExt) ? origExt : ".jpg";
+      const isWebp = file.type === "image/webp" || origExt === ".webp";
+      const cleanExt = isWebp ? ".webp" : ([".jpg", ".jpeg", ".png", ".gif"].includes(origExt) ? origExt : ".webp");
       const fileName = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${cleanExt}`;
       const filePath = path.join(uploadDir, fileName);
 

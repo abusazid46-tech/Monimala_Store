@@ -139,6 +139,8 @@ textarea{min-height:90px;resize:vertical}
 .btn-action-edit:hover{background:#8a2638}
 .btn-action-view{background:#fff;color:#611320;border:1px solid #eadfce;padding:5px 10px;border-radius:7px;font-size:12px;font-weight:600;text-decoration:none}
 .btn-action-view:hover{background:#faf6ef}
+.btn-action-delete{background:#fff;color:#b91c1c;border:1px solid #fecaca;padding:5px 10px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.15s}
+.btn-action-delete:hover{background:#fef2f2;border-color:#f87171}
 
 /* Interactive Media Desk & Gallery Picker */
 .product-media-desk{grid-column:1/-1;background:#fbf8f3;border:1px solid #eadfce;border-radius:12px;padding:20px;margin:10px 0}

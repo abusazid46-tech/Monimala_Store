@@ -74,6 +74,83 @@ if ($path === '/coupons/delete' && $method === 'POST') {
     flash_set('success', 'Coupon deleted.');
     redirect('/coupons');
 }
+if ($path === '/products/delete' && $method === 'POST') {
+    verify_csrf();
+    $id = trim((string)($_POST['product_id'] ?? ''));
+    if ($id === '') {
+        flash_set('error', 'Invalid product ID.');
+        redirect('/products');
+    }
+    $stmt = db()->prepare('SELECT id, name FROM Product WHERE id=? LIMIT 1');
+    $stmt->execute([$id]);
+    $prod = $stmt->fetch();
+    if (!$prod) {
+        flash_set('error', 'Product not found.');
+        redirect('/products');
+    }
+    $prodName = $prod['name'];
+
+    $stmt = db()->prepare('SELECT COUNT(*) FROM OrderItem WHERE productId=?');
+    $stmt->execute([$id]);
+    $orderCount = (int)$stmt->fetchColumn();
+
+    if ($orderCount > 0) {
+        db()->prepare('UPDATE Product SET active=0, stock=0, updatedAt=NOW(3) WHERE id=?')->execute([$id]);
+        flash_set('warning', "Product '$prodName' is referenced in $orderCount order(s). It has been deactivated and archived instead of permanently deleted to preserve invoice and financial audit records.");
+    } else {
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('DELETE FROM WishlistItem WHERE productId=?')->execute([$id]);
+            $pdo->prepare('DELETE FROM Review WHERE productId=?')->execute([$id]);
+            $pdo->prepare('DELETE FROM InventoryMovement WHERE productId=?')->execute([$id]);
+            $pdo->prepare('DELETE FROM Product WHERE id=?')->execute([$id]);
+            $pdo->commit();
+            flash_set('success', "Product '$prodName' permanently deleted.");
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            flash_set('error', 'Failed to delete product: ' . $e->getMessage());
+        }
+    }
+    redirect('/products');
+}
+if ($path === '/categories/delete' && $method === 'POST') {
+    verify_csrf();
+    $id = trim((string)($_POST['category_id'] ?? ''));
+    if ($id === '') {
+        flash_set('error', 'Invalid category ID.');
+        redirect('/categories');
+    }
+    $stmt = db()->prepare('SELECT id, name FROM Category WHERE id=? LIMIT 1');
+    $stmt->execute([$id]);
+    $cat = $stmt->fetch();
+    if (!$cat) {
+        flash_set('error', 'Category not found.');
+        redirect('/categories');
+    }
+    $catName = $cat['name'];
+
+    $stmt = db()->prepare('SELECT COUNT(*) FROM Product WHERE categoryId=?');
+    $stmt->execute([$id]);
+    $prodCount = (int)$stmt->fetchColumn();
+
+    if ($prodCount > 0) {
+        flash_set('error', "Cannot delete category '$catName': $prodCount product(s) are assigned to it. Please reassign or delete these products first.");
+    } else {
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $pdo->prepare('UPDATE Category SET parentId=NULL WHERE parentId=?')->execute([$id]);
+            $pdo->prepare('DELETE FROM Category WHERE id=?')->execute([$id]);
+            $pdo->commit();
+            flash_set('success', "Category '$catName' deleted successfully.");
+        } catch (Throwable $e) {
+            $pdo->rollBack();
+            flash_set('error', 'Failed to delete category: ' . $e->getMessage());
+        }
+    }
+    redirect('/categories');
+}
 if ($path === '/products/update' && $method === 'POST') {
     verify_csrf();
     $id=trim((string)($_POST['product_id']??'')); $name=trim((string)($_POST['name']??'')); $slug=slugify((string)($_POST['slug']??''));
@@ -285,23 +362,137 @@ function removeAttachedImage(cardId, url, formId) {
     if (countEl && tray) countEl.innerText = tray.querySelectorAll('.preview-card').length;
 }
 
-function handleFilePreview(input, formId) {
-    const previewDiv = document.getElementById('upload-preview-' + formId);
-    if (!previewDiv) return;
-    previewDiv.innerHTML = '';
-    if (input.files) {
-        Array.from(input.files).forEach(file => {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const card = document.createElement('div');
-                card.className = 'preview-card';
-                card.innerHTML = `<img src="${e.target.result}" alt="${file.name}"><span style="position:absolute;bottom:0;left:0;right:0;background:rgba(8,116,67,0.9);color:#fff;font-size:9px;font-weight:700;text-align:center;padding:1px;white-space:nowrap;overflow:hidden;">New Upload</span>`;
-                previewDiv.appendChild(card);
-            };
-            reader.readAsDataURL(file);
-        });
-    }
+function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
 }
+
+/**
+ * Client-Side Hybrid Image Compressor
+ * Resizes down to maxDimension (1600px) and encodes to WebP at 82% quality.
+ */
+async function compressImageToWebP(file, maxDimension = 1600, quality = 0.82) {
+    return new Promise((resolve) => {
+        if (!window.FileReader || !window.Image || !document.createElement('canvas').toBlob) {
+            return resolve({ file, originalSize: file.size, compressedSize: file.size, savedPercent: 0, dataUrl: null });
+        }
+        const reader = new FileReader();
+        reader.onerror = () => resolve({ file, originalSize: file.size, compressedSize: file.size, savedPercent: 0, dataUrl: null });
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onerror = () => resolve({ file, originalSize: file.size, compressedSize: file.size, savedPercent: 0, dataUrl: null });
+            img.onload = () => {
+                let width = img.naturalWidth || img.width;
+                let height = img.naturalHeight || img.height;
+                if (width > maxDimension || height > maxDimension) {
+                    if (width > height) {
+                        height = Math.round((height * maxDimension) / width);
+                        width = maxDimension;
+                    } else {
+                        width = Math.round((width * maxDimension) / height);
+                        height = maxDimension;
+                    }
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return resolve({ file, originalSize: file.size, compressedSize: file.size, savedPercent: 0, dataUrl: null });
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                ctx.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    if (!blob) return resolve({ file, originalSize: file.size, compressedSize: file.size, savedPercent: 0, dataUrl: null });
+                    const cleanBase = file.name.replace(/\.[^/.]+$/, '');
+                    const webpFile = new File([blob], cleanBase + '.webp', {
+                        type: 'image/webp',
+                        lastModified: Date.now()
+                    });
+                    const origSize = file.size;
+                    const compSize = webpFile.size;
+                    const saved = origSize > compSize ? Math.round(((origSize - compSize) / origSize) * 100) : 0;
+                    const dataUrl = canvas.toDataURL('image/webp', quality);
+                    resolve({ file: webpFile, originalSize: origSize, compressedSize: compSize, savedPercent: saved, dataUrl });
+                }, 'image/webp', quality);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+async function handleFilePreview(input, formId) {
+    const previewDiv = document.getElementById('upload-preview-' + formId);
+    if (!previewDiv || !input.files || input.files.length === 0) return;
+
+    previewDiv.innerHTML = '<div style="padding:10px;font-size:12px;color:#8f2d3e;font-weight:600;">⚡ Optimizing & compressing photos to WebP...</div>';
+
+    const rawFiles = Array.from(input.files);
+    const dataTransfer = window.DataTransfer ? new DataTransfer() : null;
+    const cards = [];
+
+    for (let i = 0; i < rawFiles.length; i++) {
+        const rawFile = rawFiles[i];
+        try {
+            const res = await compressImageToWebP(rawFile, 1600, 0.82);
+            if (dataTransfer) dataTransfer.items.add(res.file);
+            cards.push({
+                name: res.file.name,
+                origSize: res.originalSize,
+                compSize: res.compressedSize,
+                saved: res.savedPercent,
+                src: res.dataUrl || URL.createObjectURL(res.file)
+            });
+        } catch {
+            if (dataTransfer) dataTransfer.items.add(rawFile);
+            cards.push({
+                name: rawFile.name,
+                origSize: rawFile.size,
+                compSize: rawFile.size,
+                saved: 0,
+                src: URL.createObjectURL(rawFile)
+            });
+        }
+    }
+
+    if (dataTransfer && dataTransfer.files.length > 0) {
+        input.files = dataTransfer.files;
+    }
+
+    previewDiv.innerHTML = '';
+    cards.forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'preview-card';
+        const badgeText = c.saved > 0
+            ? `⚡ WebP • ${formatBytes(c.compSize)} (-${c.saved}%)`
+            : `WebP • ${formatBytes(c.compSize)}`;
+        card.innerHTML = `
+            <img src="${c.src}" alt="${c.name}">
+            <span style="position:absolute;bottom:0;left:0;right:0;background:rgba(8,116,67,0.92);color:#fff;font-size:9px;font-weight:700;text-align:center;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${formatBytes(c.origSize)} ➔ ${formatBytes(c.compSize)}">
+                ${badgeText}
+            </span>
+        `;
+        previewDiv.appendChild(card);
+    });
+}
+
+// Category icon client-side auto-compression listener
+document.addEventListener('change', async (e) => {
+    if (e.target && e.target.name === 'image_file' && e.target.files && e.target.files[0]) {
+        const file = e.target.files[0];
+        try {
+            const res = await compressImageToWebP(file, 800, 0.85);
+            if (window.DataTransfer && res.file) {
+                const dt = new DataTransfer();
+                dt.items.add(res.file);
+                e.target.files = dt.files;
+            }
+        } catch {}
+    }
+});
 </script>
 </body></html><?php }
 function dashboard_page(): void {
@@ -376,36 +567,190 @@ function dashboard_page(): void {
     <?php
 }
 function list_values(string $value): array { return array_values(array_unique(array_filter(array_map('trim',preg_split('/[\r\n,]+/',$value)?:[])))); }
-function uploaded_product_images(?array $files,int $limit=5): array {
-    if(!$files || !isset($files['name']))return []; $names=is_array($files['name'])?$files['name']:[$files['name']]; $results=[];
-    foreach($names as $index=>$name) {
-        $error=is_array($files['error'])?$files['error'][$index]:$files['error']; if($error===UPLOAD_ERR_NO_FILE)continue;
-        $size=is_array($files['size'])?$files['size'][$index]:$files['size']; $tmp=is_array($files['tmp_name'])?$files['tmp_name'][$index]:$files['tmp_name'];
-        if($error!==UPLOAD_ERR_OK || $size>5242880) { http_response_code(422); exit('Each product photo must be under 5 MB.'); }
-        $types=['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp']; $mime=(new finfo(FILEINFO_MIME_TYPE))->file($tmp); $extension=$types[$mime]??null;
-        if(!$extension){http_response_code(422);exit('Product photos must be JPG, PNG or WebP.');}
-        $directory=__DIR__.'/uploads/products'; if(!is_dir($directory)&&!mkdir($directory,0755,true)&&!is_dir($directory)){http_response_code(500);exit('Upload directory unavailable.');}
-        $filename=bin2hex(random_bytes(12)).'.'.$extension; if(!move_uploaded_file($tmp,$directory.'/'.$filename)){http_response_code(500);exit('Unable to save product photo.');}
-        $results[]=rtrim((string)env_value('APP_URL','https://backend.monimal.com'),'/').'/uploads/products/'.$filename; if(count($results)>$limit){http_response_code(422);exit('Too many product photos.');}
+
+/**
+ * Hybrid Image Optimizer & WebP Compressor (Server-Side Safety Net)
+ * - Auto-detects JPEG, PNG, WebP, GIF.
+ * - Handles EXIF auto-rotation for phone cameras.
+ * - Preserves transparent alpha channel for PNG/WebP jewelry assets.
+ * - Downsamples to maxDimension (e.g. 1600px) with bicubic interpolation.
+ * - Compresses to tuned WebP format (quality 82-85) to cut file size by 85-95%.
+ */
+function convert_and_compress_to_webp(string $sourcePath, string $destPath, int $maxDimension = 1600, int $quality = 82): bool {
+    if (!file_exists($sourcePath)) return false;
+
+    // Check if GD WebP creation is supported
+    if (!function_exists('imagewebp') || !function_exists('imagecreatetruecolor')) {
+        return copy($sourcePath, $destPath);
+    }
+
+    $info = @getimagesize($sourcePath);
+    if (!$info) return copy($sourcePath, $destPath);
+
+    $mime = $info['mime'] ?? '';
+    $srcW = $info[0] ?? 0;
+    $srcH = $info[1] ?? 0;
+    if ($srcW <= 0 || $srcH <= 0) return copy($sourcePath, $destPath);
+
+    $srcImg = null;
+    switch ($mime) {
+        case 'image/jpeg':
+            $srcImg = @imagecreatefromjpeg($sourcePath);
+            break;
+        case 'image/png':
+            $srcImg = @imagecreatefrompng($sourcePath);
+            break;
+        case 'image/webp':
+            $srcImg = @imagecreatefromwebp($sourcePath);
+            break;
+        case 'image/gif':
+            $srcImg = @imagecreatefromgif($sourcePath);
+            break;
+        default:
+            return copy($sourcePath, $destPath);
+    }
+
+    if (!$srcImg) return copy($sourcePath, $destPath);
+
+    // Fix EXIF orientation for phone camera JPEGs
+    if ($mime === 'image/jpeg' && function_exists('exif_read_data')) {
+        $exif = @exif_read_data($sourcePath);
+        if ($exif && !empty($exif['Orientation'])) {
+            switch ((int)$exif['Orientation']) {
+                case 3:
+                    $rotated = @imagerotate($srcImg, 180, 0);
+                    if ($rotated) { imagedestroy($srcImg); $srcImg = $rotated; }
+                    break;
+                case 6:
+                    $rotated = @imagerotate($srcImg, -90, 0);
+                    if ($rotated) { imagedestroy($srcImg); $srcImg = $rotated; $tmp = $srcW; $srcW = $srcH; $srcH = $tmp; }
+                    break;
+                case 8:
+                    $rotated = @imagerotate($srcImg, 90, 0);
+                    if ($rotated) { imagedestroy($srcImg); $srcImg = $rotated; $tmp = $srcW; $srcW = $srcH; $srcH = $tmp; }
+                    break;
+            }
+        }
+    }
+
+    // Determine target dimensions maintaining aspect ratio
+    $dstW = $srcW;
+    $dstH = $srcH;
+    if ($dstW > $maxDimension || $dstH > $maxDimension) {
+        if ($dstW > $dstH) {
+            $dstH = (int)round(($dstH * $maxDimension) / $dstW);
+            $dstW = $maxDimension;
+        } else {
+            $dstW = (int)round(($dstW * $maxDimension) / $dstH);
+            $dstH = $maxDimension;
+        }
+    }
+
+    $dstImg = imagecreatetruecolor($dstW, $dstH);
+    if (!$dstImg) {
+        imagedestroy($srcImg);
+        return copy($sourcePath, $destPath);
+    }
+
+    // Preserve alpha transparency for PNG / WebP jewelry cutouts
+    imagealphablending($dstImg, false);
+    imagesavealpha($dstImg, true);
+    $transparent = imagecolorallocatealpha($dstImg, 255, 255, 255, 127);
+    imagefilledrectangle($dstImg, 0, 0, $dstW, $dstH, $transparent);
+
+    // High quality bicubic resampling
+    imagecopyresampled($dstImg, $srcImg, 0, 0, 0, 0, $dstW, $dstH, $srcW, $srcH);
+
+    // Save as WebP
+    $saved = @imagewebp($dstImg, $destPath, $quality);
+
+    imagedestroy($srcImg);
+    imagedestroy($dstImg);
+
+    return $saved ?: copy($sourcePath, $destPath);
+}
+
+function uploaded_product_images(?array $files, int $limit = 10): array {
+    if (!$files || !isset($files['name'])) return [];
+    $names = is_array($files['name']) ? $files['name'] : [$files['name']];
+    $results = [];
+    $directory = __DIR__ . '/uploads/products';
+    if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
+        http_response_code(500); exit('Upload directory unavailable.');
+    }
+    $appUrl = rtrim((string)env_value('APP_URL', 'https://lightskyblue-swan-841286.hostingersite.com'), '/');
+
+    foreach ($names as $index => $name) {
+        $error = is_array($files['error']) ? $files['error'][$index] : $files['error'];
+        if ($error === UPLOAD_ERR_NO_FILE) continue;
+        $size = is_array($files['size']) ? $files['size'][$index] : $files['size'];
+        $tmp = is_array($files['tmp_name']) ? $files['tmp_name'][$index] : $files['tmp_name'];
+
+        if ($error !== UPLOAD_ERR_OK || $size > 15728640) { // Up to 15 MB allowed for raw mobile photos
+            http_response_code(422); exit('Each product photo must be under 15 MB.');
+        }
+
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $mime = $finfo->file($tmp);
+        $allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!in_array($mime, $allowed, true)) {
+            http_response_code(422); exit('Product photos must be JPG, PNG or WebP.');
+        }
+
+        $filename = bin2hex(random_bytes(12)) . '.webp';
+        $destPath = $directory . '/' . $filename;
+
+        // Auto-compress and convert to WebP (max 1600px, 82% quality)
+        if (!convert_and_compress_to_webp($tmp, $destPath, 1600, 82)) {
+            http_response_code(500); exit('Unable to optimize and save product photo.');
+        }
+
+        $results[] = $appUrl . '/uploads/products/' . $filename;
+        if (count($results) > $limit) {
+            http_response_code(422); exit('Too many product photos.');
+        }
     }
     return $results;
 }
+
 function slugify(string $value): string { $value=strtolower(trim($value)); $value=preg_replace('/[^a-z0-9]+/','-',$value)??''; return trim($value,'-'); }
-function category_image(?array $file,string $url): ?string {
-    if($file && ($file['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_NO_FILE) {
-        if(($file['error']??UPLOAD_ERR_OK)!==UPLOAD_ERR_OK || ($file['size']??0)>3145728) { http_response_code(422); exit('Image upload failed or exceeds 3 MB.'); }
-        $types=['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp']; $mime=(new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']); $extension=$types[$mime]??null;
-        if(!$extension) { http_response_code(422); exit('Use a JPG, PNG or WebP image.'); }
-        $directory=__DIR__.'/uploads/categories'; if(!is_dir($directory) && !mkdir($directory,0755,true) && !is_dir($directory)) { http_response_code(500); exit('Upload directory is unavailable.'); }
-        $filename=bin2hex(random_bytes(12)).'.'.$extension; if(!move_uploaded_file($file['tmp_name'],$directory.'/'.$filename)) { http_response_code(500); exit('Unable to save image.'); }
-        return rtrim((string)env_value('APP_URL','https://backend.monimal.com'),'/').'/uploads/categories/'.$filename;
+
+function category_image(?array $file, string $url): ?string {
+    if ($file && ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+        if (($file['error'] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK || ($file['size'] ?? 0) > 10485760) {
+            http_response_code(422); exit('Image upload failed or exceeds 10 MB.');
+        }
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $mime = $finfo->file($file['tmp_name']);
+        $allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!in_array($mime, $allowed, true)) {
+            http_response_code(422); exit('Use a JPG, PNG or WebP image.');
+        }
+        $directory = __DIR__ . '/uploads/categories';
+        if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
+            http_response_code(500); exit('Upload directory is unavailable.');
+        }
+        $filename = bin2hex(random_bytes(12)) . '.webp';
+        $destPath = $directory . '/' . $filename;
+
+        // Auto-compress category icon to WebP (max 800px, 85% quality)
+        if (!convert_and_compress_to_webp($file['tmp_name'], $destPath, 800, 85)) {
+            http_response_code(500); exit('Unable to optimize and save category image.');
+        }
+
+        $appUrl = rtrim((string)env_value('APP_URL', 'https://lightskyblue-swan-841286.hostingersite.com'), '/');
+        return $appUrl . '/uploads/categories/' . $filename;
     }
-    if($url==='') return null;
-    if(!str_starts_with($url,'/') && !filter_var($url,FILTER_VALIDATE_URL)) { http_response_code(422); exit('Enter a valid image URL.'); }
+    if ($url === '') return null;
+    if (!str_starts_with($url, '/') && !filter_var($url, FILTER_VALIDATE_URL)) {
+        http_response_code(422); exit('Enter a valid image URL.');
+    }
     return $url;
 }
-function categories_page(): void { $items=db()->query('SELECT c.id,c.name,c.slug,c.image,c.active,p.name parent FROM Category c LEFT JOIN Category p ON p.id=c.parentId ORDER BY c.parentId IS NOT NULL,c.createdAt,c.name')->fetchAll(); ?><section class="panel"><h3>Create category or subcategory</h3><form method="post" action="/categories/create" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Name<input name="name" required></label><label>Slug (optional)<input name="slug"></label><label>Parent category<select name="parent_id"><option value="">Top-level category</option><?php foreach($items as $item):?><option value="<?=e($item['id'])?>"><?=e(($item['parent']?$item['parent'].' → ':'').$item['name'])?></option><?php endforeach?></select></label><label>Image URL<input name="image"></label><label class="wide">Description<textarea name="description"></textarea></label><button>Create category</button></form></section><section class="panel"><h3>Category icons</h3><p>Upload a square transparent PNG/WebP or enter an image URL. The new icon appears on the storefront immediately.</p><table><thead><tr><th>Icon</th><th>Category</th><th>Parent</th><th>Replace icon and update</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><?php if($item['image']):?><img class="category-thumb" src="<?=e($item['image'])?>" alt=""><?php else:?><span>No icon</span><?php endif?></td><td><strong><?=e($item['name'])?></strong><small><?=e($item['slug'])?></small></td><td><?=e($item['parent']?:'Top level')?></td><td><form method="post" action="/categories/update" enctype="multipart/form-data" class="category-edit"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="category_id" value="<?=e($item['id'])?>"><input name="name" value="<?=e($item['name'])?>" required aria-label="Category name"><input name="image_file" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-label="Upload category icon"><input name="image_url" type="url" placeholder="Or paste image URL" aria-label="Category image URL"><label><input name="active" type="checkbox" <?=$item['active']?'checked':''?>> Active</label><button>Save</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
-function products_page(): void { $items=db()->query('SELECT p.id,p.sku,p.name,p.price,p.lowStockAt,p.active,c.name category FROM Product p JOIN Category c ON c.id=p.categoryId ORDER BY p.updatedAt DESC')->fetchAll(); $categories=db()->query('SELECT id,name FROM Category WHERE active=1 ORDER BY name')->fetchAll(); ?><section class="panel"><h3>Create product</h3><form method="post" action="/products/create" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Name<input name="name" required></label><label>Slug (optional)<input name="slug"></label><label>SKU<input name="sku" required></label><label>Category<select name="category_id" required><option value="">Select category</option><?php foreach($categories as $category):?><option value="<?=e($category['id'])?>"><?=e($category['name'])?></option><?php endforeach?></select></label><label>Price in ₹<input name="price" type="number" min="0" required></label><label>Opening stock<input name="stock" type="number" min="0" value="0" required></label><label>Low-stock alert<input name="low_stock_at" type="number" min="0" value="5" required></label><label>Metal/finish<input name="metal"></label><label>Occasion<input name="occasion"></label><label class="wide">YouTube product video URL (optional)<input name="youtube_url" type="url" placeholder="https://www.youtube.com/watch?v=..."></label><label class="wide">Image URLs (one per line)<textarea name="images" required></textarea></label><label class="wide">Description<textarea name="description" required></textarea></label><label><input type="checkbox" name="featured"> Featured</label><label><input type="checkbox" name="is_new"> New arrival</label><button>Create product</button></form></section><section class="panel"><h3>Product controls</h3><table><thead><tr><th>Product</th><th>Category</th><th>Commercial settings</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><strong><?=e($item['name'])?></strong><small><?=e($item['sku'])?></small></td><td><?=e($item['category'])?></td><td><form method="post" action="/products/update" class="inline"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="product_id" value="<?=e($item['id'])?>"><input name="price" type="number" min="0" value="<?=e($item['price'])?>" required aria-label="Price"><input name="low_stock_at" type="number" min="0" value="<?=e($item['lowStockAt'])?>" required aria-label="Low stock threshold"><label><input name="active" type="checkbox" <?=$item['active']?'checked':''?>> Active</label><button>Save</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
+
+function categories_page(): void { $items=db()->query('SELECT c.id,c.name,c.slug,c.image,c.active,p.name parent FROM Category c LEFT JOIN Category p ON p.id=c.parentId ORDER BY c.parentId IS NOT NULL,c.createdAt,c.name')->fetchAll(); ?><section class="panel"><h3>Create category or subcategory</h3><form method="post" action="/categories/create" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Name<input name="name" required></label><label>Slug (optional)<input name="slug"></label><label>Parent category<select name="parent_id"><option value="">Top-level category</option><?php foreach($items as $item):?><option value="<?=e($item['id'])?>"><?=e(($item['parent']?$item['parent'].' → ':'').$item['name'])?></option><?php endforeach?></select></label><label>Image URL<input name="image"></label><label class="wide">Description<textarea name="description"></textarea></label><button>Create category</button></form></section><section class="panel"><h3>Category icons</h3><p>Upload a square transparent PNG/WebP or enter an image URL. The new icon appears on the storefront immediately.</p><table><thead><tr><th>Icon</th><th>Category</th><th>Parent</th><th>Replace icon and update</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><?php if($item['image']):?><img class="category-thumb" src="<?=e($item['image'])?>" alt=""><?php else:?><span>No icon</span><?php endif?></td><td><strong><?=e($item['name'])?></strong><small><?=e($item['slug'])?></small></td><td><?=e($item['parent']?:'Top level')?></td><td><form method="post" action="/categories/update" enctype="multipart/form-data" class="category-edit"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="category_id" value="<?=e($item['id'])?>"><input name="name" value="<?=e($item['name'])?>" required aria-label="Category name"><input name="image_file" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-label="Upload category icon"><input name="image_url" type="url" placeholder="Or paste image URL" aria-label="Category image URL"><label><input name="active" type="checkbox" <?=$item['active']?'checked':''?>> Active</label><button>Save</button></form><form method="post" action="/categories/delete" style="display:inline-block; margin-left:8px;" onsubmit="return confirm('Permanently delete category <?=e(addslashes($item['name']))?>?');"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="category_id" value="<?=e($item['id'])?>"><button class="btn-action-delete" type="submit">🗑 Delete</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
+
+function products_page(): void { $items=db()->query('SELECT p.id,p.sku,p.name,p.price,p.lowStockAt,p.active,c.name category FROM Product p JOIN Category c ON c.id=p.categoryId ORDER BY p.updatedAt DESC')->fetchAll(); $categories=db()->query('SELECT id,name FROM Category WHERE active=1 ORDER BY name')->fetchAll(); ?><section class="panel"><h3>Create product</h3><form method="post" action="/products/create" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Name<input name="name" required></label><label>Slug (optional)<input name="slug"></label><label>SKU<input name="sku" required></label><label>Category<select name="category_id" required><option value="">Select category</option><?php foreach($categories as $category):?><option value="<?=e($category['id'])?>"><?=e($category['name'])?></option><?php endforeach?></select></label><label>Price in ₹<input name="price" type="number" min="0" required></label><label>Opening stock<input name="stock" type="number" min="0" value="0" required></label><label>Low-stock alert<input name="low_stock_at" type="number" min="0" value="5" required></label><label>Metal/finish<input name="metal"></label><label>Occasion<input name="occasion"></label><label class="wide">YouTube product video URL (optional)<input name="youtube_url" type="url" placeholder="https://www.youtube.com/watch?v=..."></label><label class="wide">Image URLs (one per line)<textarea name="images" required></textarea></label><label class="wide">Description<textarea name="description" required></textarea></label><label><input type="checkbox" name="featured"> Featured</label><label><input type="checkbox" name="is_new"> New arrival</label><button>Create product</button></form></section><section class="panel"><h3>Product controls</h3><table><thead><tr><th>Product</th><th>Category</th><th>Commercial settings</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><strong><?=e($item['name'])?></strong><small><?=e($item['sku'])?></small></td><td><?=e($item['category'])?></td><td><form method="post" action="/products/update" class="inline"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="product_id" value="<?=e($item['id'])?>"><input name="price" type="number" min="0" value="<?=e($item['price'])?>" required aria-label="Price"><input name="low_stock_at" type="number" min="0" value="<?=e($item['lowStockAt'])?>" required aria-label="Low stock threshold"><label><input name="active" type="checkbox" <?=$item['active']?'checked':''?>> Active</label><button>Save</button></form><form method="post" action="/products/delete" style="display:inline-block; margin-left:8px;" onsubmit="return confirm('Permanently delete product <?=e(addslashes($item['name']))?>?');"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="product_id" value="<?=e($item['id'])?>"><button class="btn-action-delete" type="submit">🗑 Delete</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
 
 function available_media_gallery(): array {
     $results = [];
@@ -694,6 +1039,11 @@ function products_page_v2(): void {
                                 <div class="actions-cell" style="justify-content:flex-end;">
                                     <a class="btn-action-edit" href="/products/edit?id=<?=urlencode($item['id'])?>">✏ Edit</a>
                                     <a class="btn-action-view" target="_blank" href="<?=e((string)env_value('STOREFRONT_URL','https://www.monimala.com'))?>/products/<?=e($item['slug'])?>">↗ Store</a>
+                                    <form method="post" action="/products/delete" style="display:inline-block;margin:0;" onsubmit="return confirm('Delete product <?=e(addslashes($item['name']))?>?');">
+                                        <input type="hidden" name="_token" value="<?=csrf_token()?>">
+                                        <input type="hidden" name="product_id" value="<?=e($item['id'])?>">
+                                        <button type="submit" class="btn-action-delete">🗑 Delete</button>
+                                    </form>
                                 </div>
                             </td>
                         </tr>
@@ -723,9 +1073,14 @@ function product_edit_page(): void {
     $sizes=json_decode((string)($item['sizes']??''),true)?:[];
     $images=json_decode((string)($item['images']??''),true)?:[];
     ?>
-    <div class="page-actions" style="margin-bottom:16px;display:flex;gap:10px;">
+    <div class="page-actions" style="margin-bottom:16px;display:flex;gap:10px;align-items:center;">
         <a class="button-secondary" href="/products">← Back to Products Directory</a>
         <a class="button-secondary" target="_blank" href="<?=e((string)env_value('STOREFRONT_URL','https://www.monimala.com'))?>/products/<?=e($item['slug'])?>">View on Live Storefront ↗</a>
+        <form method="post" action="/products/delete" style="margin-left:auto;" onsubmit="return confirm('Permanently delete product <?=e(addslashes($item['name']))?>?');">
+            <input type="hidden" name="_token" value="<?=csrf_token()?>">
+            <input type="hidden" name="product_id" value="<?=e($item['id'])?>">
+            <button type="submit" class="btn-action-delete" style="padding:8px 14px;">🗑 Delete Product</button>
+        </form>
     </div>
 
     <section class="panel">

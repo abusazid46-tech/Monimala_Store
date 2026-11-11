@@ -117,3 +117,74 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+const deleteProductSchema = z.object({
+  id: z.string().min(1)
+});
+
+export async function DELETE(request: NextRequest) {
+  const session = await getSession();
+  if (!session || session.role !== "ADMIN") {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
+  }
+
+  let id = request.nextUrl.searchParams.get("id");
+  if (!id) {
+    const body = await request.json().catch(() => null);
+    const parsed = deleteProductSchema.safeParse(body);
+    if (parsed.success) {
+      id = parsed.data.id;
+    }
+  }
+
+  if (!id) {
+    return NextResponse.json({ error: "Product ID is required." }, { status: 400 });
+  }
+
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: { orderItems: true }
+        }
+      }
+    });
+
+    if (!product) {
+      return NextResponse.json({ error: "Product not found." }, { status: 404 });
+    }
+
+    if (product._count.orderItems > 0) {
+      await prisma.product.update({
+        where: { id },
+        data: { active: false, stock: 0 }
+      });
+
+      return NextResponse.json({
+        success: true,
+        archived: true,
+        message: `Product "${product.name}" is part of ${product._count.orderItems} existing order(s). It has been deactivated and archived instead of permanently removed to preserve order records.`
+      });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.wishlistItem.deleteMany({ where: { productId: id } });
+      await tx.review.deleteMany({ where: { productId: id } });
+      await tx.inventoryMovement.deleteMany({ where: { productId: id } });
+      await tx.product.delete({ where: { id } });
+    });
+
+    return NextResponse.json({
+      success: true,
+      deleted: true,
+      message: `Product "${product.name}" has been permanently deleted.`
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to delete product." },
+      { status: 500 }
+    );
+  }
+}
+

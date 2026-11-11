@@ -12,16 +12,19 @@ import {
   Image as ImageIcon,
   Layers,
   Link2,
+  Loader2,
   PackageCheck,
   Plus,
   Search,
   Star,
   Tag,
+  Trash2,
   UploadCloud,
   X
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatPrice } from "@/lib/utils";
+import { compressImageToWebP, formatFileSize } from "@/lib/image-compressor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -73,6 +76,8 @@ export function ProductsManager({
   const [statusFilter, setStatusFilter] = useState<"ALL" | "LIVE" | "HIDDEN" | "LOW_STOCK">("ALL");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<AdminProduct | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // New Product Form State
   const [newName, setNewName] = useState("");
@@ -179,6 +184,34 @@ export function ProductsManager({
     }
   }
 
+  // Delete Product Handler
+  async function handleDeleteProduct() {
+    if (!productToDelete) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/products?id=${encodeURIComponent(productToDelete.id)}`, {
+        method: "DELETE"
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete product");
+
+      if (data.archived) {
+        setProducts((prev) =>
+          prev.map((p) => (p.id === productToDelete.id ? { ...p, active: false, stock: 0 } : p))
+        );
+        toast.warning(data.message);
+      } else {
+        setProducts((prev) => prev.filter((p) => p.id !== productToDelete.id));
+        toast.success(data.message || `Deleted product "${productToDelete.name}"`);
+      }
+      setProductToDelete(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error deleting product");
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
   // Media Desk Handlers
   function toggleGallerySelection(url: string) {
     setAttachedImages((prev) => {
@@ -208,16 +241,34 @@ export function ProductsManager({
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const rawFiles = e.target.files;
+    if (!rawFiles || rawFiles.length === 0) return;
 
     setIsUploading(true);
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      formData.append("files", files[i]);
-    }
 
     try {
+      const formData = new FormData();
+      let originalBytes = 0;
+      let compressedBytes = 0;
+
+      // Client-Side Hybrid Compression to WebP
+      for (let i = 0; i < rawFiles.length; i++) {
+        const file = rawFiles[i];
+        originalBytes += file.size;
+        try {
+          const result = await compressImageToWebP(file, {
+            maxDimension: 1600,
+            quality: 0.82
+          });
+          formData.append("files", result.file);
+          compressedBytes += result.compressedSize;
+        } catch {
+          // Fallback to original file if client canvas unsupported
+          formData.append("files", file);
+          compressedBytes += file.size;
+        }
+      }
+
       const res = await fetch("/api/admin/upload", {
         method: "POST",
         body: formData
@@ -226,17 +277,20 @@ export function ProductsManager({
       if (res.ok && data.urls) {
         setAttachedImages((prev) => Array.from(new Set([...prev, ...data.urls])));
         setGalleryList((prev) => Array.from(new Set([...data.urls, ...prev])));
-        toast.success(`Uploaded ${data.urls.length} photo${data.urls.length === 1 ? "" : "s"}`);
+        const savings = Math.max(0, Math.round(((originalBytes - compressedBytes) / originalBytes) * 100));
+        toast.success(
+          `⚡ Auto-compressed ${data.urls.length} photo(s) to WebP: ${formatFileSize(originalBytes)} ➔ ${formatFileSize(compressedBytes)} (${savings}% saved)`
+        );
       } else {
         // Fallback: Read as local data URLs for preview
-        for (let i = 0; i < files.length; i++) {
+        for (let i = 0; i < rawFiles.length; i++) {
           const reader = new FileReader();
           reader.onload = (event) => {
             if (event.target?.result) {
               setAttachedImages((prev) => [...prev, event.target!.result as string]);
             }
           };
-          reader.readAsDataURL(files[i]);
+          reader.readAsDataURL(rawFiles[i]);
         }
         toast.info("Image added to preview");
       }
@@ -577,6 +631,14 @@ export function ProductsManager({
                             <ExternalLink className="w-4 h-4" />
                           </Link>
                         </Button>
+                        <button
+                          type="button"
+                          onClick={() => setProductToDelete(product)}
+                          title="Delete product"
+                          className="h-8 w-8 rounded-lg flex items-center justify-center text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -936,6 +998,67 @@ export function ProductsManager({
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Delete Confirmation Modal */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl border border-primary/20 shadow-2xl max-w-md w-full p-6 sm:p-7 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-charcoal font-heading">Delete Product</h3>
+                <p className="text-xs text-charcoal/60">Remove this item from your active catalog.</p>
+              </div>
+            </div>
+
+            <div className="bg-[#fbf8f4] p-3.5 rounded-2xl border border-primary/10 text-xs space-y-1">
+              <div className="font-semibold text-charcoal">{productToDelete.name}</div>
+              <div className="text-charcoal/60 flex items-center gap-2">
+                <span>SKU: {productToDelete.sku}</span>
+                <span>•</span>
+                <span>{formatPrice(productToDelete.price)}</span>
+                <span>•</span>
+                <span>Stock: {productToDelete.stock}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-charcoal/70 leading-relaxed">
+              Are you sure you want to delete this piece? If this product is part of past customer orders, it will be safely deactivated and archived instead of deleted to protect order and invoice records.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setProductToDelete(null)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteProduct}
+                disabled={isDeleting}
+                className="bg-rose-600 hover:bg-rose-700 text-white"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Confirm Delete"
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       )}
