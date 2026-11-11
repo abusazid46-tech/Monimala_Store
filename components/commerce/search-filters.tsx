@@ -11,15 +11,21 @@ export function SearchFilters({ products, initialQuery = "", initialCategory = "
   const searchParams = useSearchParams();
   const queryFromUrl = searchParams.get("q") || initialQuery;
   const categoryFromUrl = searchParams.get("category") || initialCategory;
+  const sortFromUrl = searchParams.get("sort");
   const [query, setQuery] = useState(queryFromUrl);
   const matchingCategory = products.find((product) => product.category.toLowerCase().replaceAll(" ", "-") === categoryFromUrl)?.category;
   const [category, setCategory] = useState(matchingCategory || "All");
-  const [sort, setSort] = useState("ranking");
+  const [sort, setSort] = useState(sortFromUrl === "recommended" ? "ranking" : (sortFromUrl || "ranking"));
 
   const categories = ["All", ...Array.from(new Set(products.map((p) => p.category)))];
 
   useEffect(() => setQuery(queryFromUrl), [queryFromUrl]);
   useEffect(() => setCategory(matchingCategory || "All"), [matchingCategory]);
+  useEffect(() => {
+    if (sortFromUrl) {
+      setSort(sortFromUrl === "recommended" ? "ranking" : sortFromUrl);
+    }
+  }, [sortFromUrl]);
 
   const filtered = useMemo(() => {
     const matches = products.filter((product) => {

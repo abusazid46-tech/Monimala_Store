@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   output: "standalone",
   images: {
+    formats: ["image/avif", "image/webp"],
     remotePatterns: [
       {
         protocol: "https",
@@ -15,6 +16,18 @@ const nextConfig: NextConfig = {
       {
         protocol: "https",
         hostname: "backend.monimal.com"
+      },
+      {
+        protocol: "https",
+        hostname: "backend.monimala.com"
+      },
+      {
+        protocol: "https",
+        hostname: "monimala.com"
+      },
+      {
+        protocol: "https",
+        hostname: "www.monimala.com"
       },
       {
         protocol: "https",

@@ -550,17 +550,47 @@ export function CategoriesManager({
               </div>
 
               <div>
-                <label className="font-semibold text-charcoal block mb-1">Icon / Banner Image</label>
-                <div className="flex gap-2">
-                  <Input
-                    value={newImage}
-                    onChange={(e) => setNewImage(e.target.value)}
-                    placeholder="e.g. /images/categories/jonbiri.png or upload file"
-                    className="flex-1"
-                  />
-                  <label className="relative inline-flex items-center justify-center px-3 py-2 bg-cream hover:bg-gold/10 border border-gold/40 text-maroon text-xs font-bold rounded-xl cursor-pointer transition-colors shrink-0">
-                    <UploadCloud className="w-4 h-4 mr-1.5" />
-                    <span>{isUploadingImage ? "Compressing..." : "Upload & WebP"}</span>
+                <label className="font-semibold text-charcoal block mb-1.5">Category Photo / Icon</label>
+                {newImage ? (
+                  <div className="flex items-center gap-3 p-3 rounded-2xl bg-cream/70 border border-gold/30">
+                    <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-white border border-primary/20 shrink-0">
+                      <Image
+                        src={newImage}
+                        alt="Category preview"
+                        fill
+                        unoptimized
+                        className="object-contain p-1"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 mb-1">
+                        ⚡ WebP Auto-Compressed
+                      </span>
+                      <p className="text-xs text-charcoal/60 truncate font-mono">{newImage}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <label className="px-2.5 py-1.5 bg-white hover:bg-gold/10 text-maroon text-xs font-semibold rounded-lg border border-primary/20 cursor-pointer transition-colors">
+                        <span>Change</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          disabled={isUploadingImage}
+                          onChange={(e) => handleCategoryImageUpload(e, false)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setNewImage("")}
+                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                        title="Remove photo"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="border-2 border-dashed border-primary/25 hover:border-maroon hover:bg-cream/40 bg-white rounded-2xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-all group">
                     <input
                       type="file"
                       accept="image/*"
@@ -568,8 +598,17 @@ export function CategoriesManager({
                       disabled={isUploadingImage}
                       onChange={(e) => handleCategoryImageUpload(e, false)}
                     />
+                    <div className="w-10 h-10 rounded-full bg-cream text-maroon flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+                      {isUploadingImage ? <Loader2 className="w-5 h-5 animate-spin" /> : <UploadCloud className="w-5 h-5" />}
+                    </div>
+                    <span className="text-xs font-bold text-charcoal">
+                      {isUploadingImage ? "Compressing to WebP..." : "Click or Drag Category Photo"}
+                    </span>
+                    <span className="text-[10px] text-charcoal/50 mt-0.5">
+                      Direct upload · Automatically converted & downsized to WebP
+                    </span>
                   </label>
-                </div>
+                )}
               </div>
 
               <div>
@@ -653,17 +692,47 @@ export function CategoriesManager({
               </div>
 
               <div>
-                <label className="font-semibold text-charcoal block mb-1">Icon / Banner Image</label>
-                <div className="flex gap-2">
-                  <Input
-                    value={editImage}
-                    onChange={(e) => setEditImage(e.target.value)}
-                    placeholder="/images/... or upload file"
-                    className="flex-1"
-                  />
-                  <label className="relative inline-flex items-center justify-center px-3 py-2 bg-cream hover:bg-gold/10 border border-gold/40 text-maroon text-xs font-bold rounded-xl cursor-pointer transition-colors shrink-0">
-                    <UploadCloud className="w-4 h-4 mr-1.5" />
-                    <span>{isUploadingImage ? "Compressing..." : "Upload & WebP"}</span>
+                <label className="font-semibold text-charcoal block mb-1.5">Category Photo / Icon</label>
+                {editImage ? (
+                  <div className="flex items-center gap-3 p-3 rounded-2xl bg-cream/70 border border-gold/30">
+                    <div className="relative w-14 h-14 rounded-xl overflow-hidden bg-white border border-primary/20 shrink-0">
+                      <Image
+                        src={editImage}
+                        alt="Category preview"
+                        fill
+                        unoptimized
+                        className="object-contain p-1"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 mb-1">
+                        ⚡ WebP Auto-Compressed
+                      </span>
+                      <p className="text-xs text-charcoal/60 truncate font-mono">{editImage}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <label className="px-2.5 py-1.5 bg-white hover:bg-gold/10 text-maroon text-xs font-semibold rounded-lg border border-primary/20 cursor-pointer transition-colors">
+                        <span>Change</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="sr-only"
+                          disabled={isUploadingImage}
+                          onChange={(e) => handleCategoryImageUpload(e, true)}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setEditImage("")}
+                        className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                        title="Remove photo"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="border-2 border-dashed border-primary/25 hover:border-maroon hover:bg-cream/40 bg-white rounded-2xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-all group">
                     <input
                       type="file"
                       accept="image/*"
@@ -671,8 +740,17 @@ export function CategoriesManager({
                       disabled={isUploadingImage}
                       onChange={(e) => handleCategoryImageUpload(e, true)}
                     />
+                    <div className="w-10 h-10 rounded-full bg-cream text-maroon flex items-center justify-center mb-1.5 group-hover:scale-110 transition-transform">
+                      {isUploadingImage ? <Loader2 className="w-5 h-5 animate-spin" /> : <UploadCloud className="w-5 h-5" />}
+                    </div>
+                    <span className="text-xs font-bold text-charcoal">
+                      {isUploadingImage ? "Compressing to WebP..." : "Click or Drag Category Photo"}
+                    </span>
+                    <span className="text-[10px] text-charcoal/50 mt-0.5">
+                      Direct upload · Automatically converted & downsized to WebP
+                    </span>
                   </label>
-                </div>
+                )}
               </div>
 
               <div>

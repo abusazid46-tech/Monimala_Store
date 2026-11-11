@@ -203,20 +203,49 @@ if ($path === '/products/options' && $method === 'POST') {
 if ($path === '/categories/ranking' && $method === 'POST') {
     verify_csrf(); db()->prepare('UPDATE Category SET position=?,updatedAt=NOW(3) WHERE id=?')->execute([max(0,(int)($_POST['position']??0)),(string)$_POST['category_id']]); redirect('/categories');
 }
+if ($path === '/products/ranking' && $method === 'POST') {
+    verify_csrf();
+    $id = trim((string)($_POST['product_id'] ?? ''));
+    $position = max(0, (int)($_POST['position'] ?? 0));
+    if ($id !== '') {
+        db()->prepare('UPDATE Product SET position=?, updatedAt=NOW(3) WHERE id=?')->execute([$position, $id]);
+        flash_set('success', 'Storefront ranking position updated.');
+    }
+    redirect('/products');
+}
+if ($path === '/products/bestseller' && $method === 'POST') {
+    verify_csrf();
+    $id = trim((string)($_POST['product_id'] ?? ''));
+    if ($id !== '') {
+        $stmt = db()->prepare('SELECT isFeatured FROM Product WHERE id=?');
+        $stmt->execute([$id]);
+        $current = (int)$stmt->fetchColumn();
+        $next = $current ? 0 : 1;
+        db()->prepare('UPDATE Product SET isFeatured=?, updatedAt=NOW(3) WHERE id=?')->execute([$next, $id]);
+        flash_set('success', $next ? 'Added to Best Sellers.' : 'Removed from Best Sellers.');
+    }
+    redirect('/products');
+}
 if ($path === '/categories/update' && $method === 'POST') {
     verify_csrf();
-    $id=trim((string)($_POST['category_id']??'')); $name=trim((string)($_POST['name']??'')); $image=category_image($_FILES['image_file']??null,trim((string)($_POST['image_url']??'')));
+    $id=trim((string)($_POST['category_id']??'')); $name=trim((string)($_POST['name']??'')); $image=category_image($_FILES['image_file']??null,'');
     if($id==='' || strlen($name)<2) { http_response_code(422); exit('A valid category is required.'); }
     if($image===null) db()->prepare('UPDATE Category SET name=?,active=?,updatedAt=NOW(3) WHERE id=?')->execute([$name,isset($_POST['active'])?1:0,$id]);
     else db()->prepare('UPDATE Category SET name=?,image=?,active=?,updatedAt=NOW(3) WHERE id=?')->execute([$name,$image,isset($_POST['active'])?1:0,$id]);
+    flash_set('success', 'Category updated successfully.');
     redirect('/categories');
 }
 if ($path === '/categories/create' && $method === 'POST') {
     verify_csrf();
     $name=trim((string)($_POST['name']??'')); $slug=slugify((string)($_POST['slug']?:$name)); $parent=trim((string)($_POST['parent_id']??''))?:null;
     if(strlen($name)<2 || $slug==='') { http_response_code(422); exit('Category name is required.'); }
-    try { db()->prepare('INSERT INTO Category (id,name,slug,description,image,parentId,active,createdAt,updatedAt) VALUES (?,?,?,?,?,?,1,NOW(3),NOW(3))')->execute(['php_'.bin2hex(random_bytes(12)),$name,$slug,trim((string)($_POST['description']??''))?:null,trim((string)($_POST['image']??''))?:null,$parent]); }
-    catch(PDOException $error) { http_response_code(422); exit($error->getCode()==='23000'?'That category slug already exists.':'Unable to create category.'); }
+    $image=category_image($_FILES['image_file']??null,'');
+    try {
+        db()->prepare('INSERT INTO Category (id,name,slug,description,image,parentId,active,createdAt,updatedAt) VALUES (?,?,?,?,?,?,1,NOW(3),NOW(3))')->execute(['php_'.bin2hex(random_bytes(12)),$name,$slug,trim((string)($_POST['description']??''))?:null,$image,$parent]);
+        flash_set('success', "Category '$name' created successfully.");
+    } catch(PDOException $error) {
+        http_response_code(422); exit($error->getCode()==='23000'?'That category slug already exists.':'Unable to create category.');
+    }
     redirect('/categories');
 }
 if ($path === '/products/create' && $method === 'POST') {
@@ -224,6 +253,9 @@ if ($path === '/products/create' && $method === 'POST') {
     $name=trim((string)($_POST['name']??'')); $slug=slugify((string)($_POST['slug']?:$name)); $price=filter_var($_POST['price']??null,FILTER_VALIDATE_INT); $stock=filter_var($_POST['stock']??null,FILTER_VALIDATE_INT);
     $compareRaw=trim((string)($_POST['compare_at']??'')); $compareAt=$compareRaw===''?null:filter_var($compareRaw,FILTER_VALIDATE_INT);
     $youtubeUrl=trim((string)($_POST['youtube_url']??''));
+    $position=max(0, (int)($_POST['position'] ?? 0));
+    $colors=list_values((string)($_POST['colors'] ?? ''));
+    $sizes=list_values((string)($_POST['sizes'] ?? ''));
 
     $uploads = uploaded_product_images($_FILES['image_files'] ?? null);
     $gallerySelected = isset($_POST['gallery_selected']) && is_array($_POST['gallery_selected']) ? array_filter(array_map('trim', $_POST['gallery_selected'])) : [];
@@ -244,7 +276,7 @@ if ($path === '/products/create' && $method === 'POST') {
     }
     $id='php_'.bin2hex(random_bytes(12)); $pdo=db(); $pdo->beginTransaction();
     try {
-        $pdo->prepare('INSERT INTO Product (id,name,slug,description,price,compareAt,stock,sku,images,youtubeUrl,metal,occasion,isFeatured,isNew,categoryId,active,lowStockAt,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(3),NOW(3))')->execute([$id,$name,$slug,trim((string)$_POST['description']),$price,$compareAt,$stock,strtoupper(trim((string)$_POST['sku'])),json_encode($images,JSON_UNESCAPED_SLASHES),$youtubeUrl?:null,trim((string)$_POST['metal'])?:null,trim((string)$_POST['occasion'])?:null,isset($_POST['featured'])?1:0,isset($_POST['is_new'])?1:0,$_POST['category_id'],1,max(0,(int)($_POST['low_stock_at']??5))]);
+        $pdo->prepare('INSERT INTO Product (id,name,slug,description,price,compareAt,stock,sku,images,youtubeUrl,metal,occasion,colors,sizes,position,isFeatured,isNew,categoryId,active,lowStockAt,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(3),NOW(3))')->execute([$id,$name,$slug,trim((string)$_POST['description']),$price,$compareAt,$stock,strtoupper(trim((string)$_POST['sku'])),json_encode($images,JSON_UNESCAPED_SLASHES),$youtubeUrl?:null,trim((string)$_POST['metal'])?:null,trim((string)$_POST['occasion'])?:null,json_encode($colors),json_encode($sizes),$position,isset($_POST['featured'])?1:0,isset($_POST['is_new'])?1:0,$_POST['category_id'],1,max(0,(int)($_POST['low_stock_at']??5))]);
         if($stock>0) $pdo->prepare('INSERT INTO InventoryMovement (id,productId,actorId,quantity,reason,reference,createdAt) VALUES (?,?,?,?,?,?,NOW(3))')->execute(['php_'.bin2hex(random_bytes(12)),$id,admin()['id'],$stock,'OPENING_STOCK','Product creation']);
         $pdo->commit();
         flash_set('success', "Product '$name' created successfully with ".count($images)." image".(count($images)===1?'':'s').".");
@@ -267,7 +299,7 @@ layout_start(match($path){
 }, $path);
 
 if($path==='/categories') { categories_page(); category_ranking_page(); }
-elseif($path==='/products') { products_page_v2(); product_advanced_page(); }
+elseif($path==='/products') { products_page_v2(); bestseller_ranking_page(); product_advanced_page(); }
 elseif($path==='/products/edit') product_edit_page();
 elseif($path==='/inventory') { inventory_page(); inventory_movements_page(); }
 elseif($path==='/orders') orders_page();
@@ -424,22 +456,24 @@ async function compressImageToWebP(file, maxDimension = 1600, quality = 0.82) {
     });
 }
 
+// Keep track of files per formId for cumulative addition & removal
+window._uploadedFilesMap = window._uploadedFilesMap || {};
+
 async function handleFilePreview(input, formId) {
     const previewDiv = document.getElementById('upload-preview-' + formId);
     if (!previewDiv || !input.files || input.files.length === 0) return;
 
     previewDiv.innerHTML = '<div style="padding:10px;font-size:12px;color:#8f2d3e;font-weight:600;">⚡ Optimizing & compressing photos to WebP...</div>';
 
-    const rawFiles = Array.from(input.files);
-    const dataTransfer = window.DataTransfer ? new DataTransfer() : null;
-    const cards = [];
+    window._uploadedFilesMap[formId] = window._uploadedFilesMap[formId] || [];
+    const newFiles = Array.from(input.files);
 
-    for (let i = 0; i < rawFiles.length; i++) {
-        const rawFile = rawFiles[i];
+    for (let i = 0; i < newFiles.length; i++) {
+        const rawFile = newFiles[i];
         try {
             const res = await compressImageToWebP(rawFile, 1600, 0.82);
-            if (dataTransfer) dataTransfer.items.add(res.file);
-            cards.push({
+            window._uploadedFilesMap[formId].push({
+                file: res.file,
                 name: res.file.name,
                 origSize: res.originalSize,
                 compSize: res.compressedSize,
@@ -447,8 +481,8 @@ async function handleFilePreview(input, formId) {
                 src: res.dataUrl || URL.createObjectURL(res.file)
             });
         } catch {
-            if (dataTransfer) dataTransfer.items.add(rawFile);
-            cards.push({
+            window._uploadedFilesMap[formId].push({
+                file: rawFile,
                 name: rawFile.name,
                 origSize: rawFile.size,
                 compSize: rawFile.size,
@@ -458,25 +492,60 @@ async function handleFilePreview(input, formId) {
         }
     }
 
-    if (dataTransfer && dataTransfer.files.length > 0) {
-        input.files = dataTransfer.files;
+    syncUploadedFiles(input, formId);
+}
+
+function removeUploadedFile(formId, index) {
+    if (!window._uploadedFilesMap[formId]) return;
+    window._uploadedFilesMap[formId].splice(index, 1);
+    const dropzone = document.getElementById('tab-upload-' + formId);
+    const input = dropzone ? dropzone.querySelector('input[type="file"]') : null;
+    syncUploadedFiles(input, formId);
+}
+
+function syncUploadedFiles(input, formId) {
+    const previewDiv = document.getElementById('upload-preview-' + formId);
+    const list = window._uploadedFilesMap[formId] || [];
+
+    if (input && window.DataTransfer) {
+        const dt = new DataTransfer();
+        list.forEach(item => dt.items.add(item.file));
+        input.files = dt.files;
     }
 
+    if (!previewDiv) return;
     previewDiv.innerHTML = '';
-    cards.forEach(c => {
+
+    list.forEach((c, idx) => {
         const card = document.createElement('div');
         card.className = 'preview-card';
+        card.style.position = 'relative';
         const badgeText = c.saved > 0
             ? `⚡ WebP • ${formatBytes(c.compSize)} (-${c.saved}%)`
             : `WebP • ${formatBytes(c.compSize)}`;
         card.innerHTML = `
             <img src="${c.src}" alt="${c.name}">
+            <button type="button" class="preview-card-remove" onclick="removeUploadedFile('${formId}', ${idx})" title="Remove photo" style="position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,0.7);color:#fff;border:none;font-size:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:2;">✕</button>
             <span style="position:absolute;bottom:0;left:0;right:0;background:rgba(8,116,67,0.92);color:#fff;font-size:9px;font-weight:700;text-align:center;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${formatBytes(c.origSize)} ➔ ${formatBytes(c.compSize)}">
                 ${badgeText}
             </span>
         `;
         previewDiv.appendChild(card);
     });
+
+    if (list.length > 0) {
+        const addMore = document.createElement('button');
+        addMore.type = 'button';
+        addMore.className = 'button-secondary';
+        addMore.style.cssText = 'grid-column:1/-1;margin-top:8px;font-size:12px;padding:6px 12px;display:inline-flex;align-items:center;gap:5px;width:fit-content;';
+        addMore.innerHTML = '📁 Add More Photos';
+        addMore.onclick = () => {
+            const dropzone = document.getElementById('tab-upload-' + formId);
+            const inp = dropzone ? dropzone.querySelector('input[type="file"]') : null;
+            if (inp) inp.click();
+        };
+        previewDiv.appendChild(addMore);
+    }
 }
 
 // Category icon client-side auto-compression listener
@@ -748,7 +817,7 @@ function category_image(?array $file, string $url): ?string {
     return $url;
 }
 
-function categories_page(): void { $items=db()->query('SELECT c.id,c.name,c.slug,c.image,c.active,p.name parent FROM Category c LEFT JOIN Category p ON p.id=c.parentId ORDER BY c.parentId IS NOT NULL,c.createdAt,c.name')->fetchAll(); ?><section class="panel"><h3>Create category or subcategory</h3><form method="post" action="/categories/create" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Name<input name="name" required></label><label>Slug (optional)<input name="slug"></label><label>Parent category<select name="parent_id"><option value="">Top-level category</option><?php foreach($items as $item):?><option value="<?=e($item['id'])?>"><?=e(($item['parent']?$item['parent'].' → ':'').$item['name'])?></option><?php endforeach?></select></label><label>Image URL<input name="image"></label><label class="wide">Description<textarea name="description"></textarea></label><button>Create category</button></form></section><section class="panel"><h3>Category icons</h3><p>Upload a square transparent PNG/WebP or enter an image URL. The new icon appears on the storefront immediately.</p><table><thead><tr><th>Icon</th><th>Category</th><th>Parent</th><th>Replace icon and update</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><?php if($item['image']):?><img class="category-thumb" src="<?=e($item['image'])?>" alt=""><?php else:?><span>No icon</span><?php endif?></td><td><strong><?=e($item['name'])?></strong><small><?=e($item['slug'])?></small></td><td><?=e($item['parent']?:'Top level')?></td><td><form method="post" action="/categories/update" enctype="multipart/form-data" class="category-edit"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="category_id" value="<?=e($item['id'])?>"><input name="name" value="<?=e($item['name'])?>" required aria-label="Category name"><input name="image_file" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-label="Upload category icon"><input name="image_url" type="url" placeholder="Or paste image URL" aria-label="Category image URL"><label><input name="active" type="checkbox" <?=$item['active']?'checked':''?>> Active</label><button>Save</button></form><form method="post" action="/categories/delete" style="display:inline-block; margin-left:8px;" onsubmit="return confirm('Permanently delete category <?=e(addslashes($item['name']))?>?');"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="category_id" value="<?=e($item['id'])?>"><button class="btn-action-delete" type="submit">🗑 Delete</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
+function categories_page(): void { $items=db()->query('SELECT c.id,c.name,c.slug,c.image,c.active,p.name parent FROM Category c LEFT JOIN Category p ON p.id=c.parentId ORDER BY c.parentId IS NOT NULL,c.createdAt,c.name')->fetchAll(); ?><section class="panel"><h3>Create category or subcategory</h3><form method="post" action="/categories/create" enctype="multipart/form-data" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Name<input name="name" required placeholder="e.g. Traditional Necklaces"></label><label>Slug (optional)<input name="slug" placeholder="traditional-necklaces"></label><label>Parent category<select name="parent_id"><option value="">Top-level category</option><?php foreach($items as $item):?><option value="<?=e($item['id'])?>"><?=e(($item['parent']?$item['parent'].' → ':'').$item['name'])?></option><?php endforeach?></select></label><label>Category Photo / Icon (Auto WebP)<input name="image_file" type="file" accept="image/jpeg,image/png,image/webp"></label><label class="wide">Description<textarea name="description" placeholder="Heritage craftsmanship background..."></textarea></label><button>Create category</button></form></section><section class="panel"><h3>Category icons</h3><p>Upload a square PNG, JPG, or WebP photo directly from your device. It is automatically compressed to optimized WebP in hybrid mode and appears immediately.</p><table><thead><tr><th>Icon</th><th>Category</th><th>Parent</th><th>Direct Photo Upload & Update</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><?php if($item['image']):?><img class="category-thumb" src="<?=e($item['image'])?>" alt=""><?php else:?><span>No icon</span><?php endif?></td><td><strong><?=e($item['name'])?></strong><small><?=e($item['slug'])?></small></td><td><?=e($item['parent']?:'Top level')?></td><td><form method="post" action="/categories/update" enctype="multipart/form-data" class="category-edit"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="category_id" value="<?=e($item['id'])?>"><input name="name" value="<?=e($item['name'])?>" required aria-label="Category name"><input name="image_file" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-label="Upload category icon"><label><input name="active" type="checkbox" <?=$item['active']?'checked':''?>> Active</label><button>Save</button></form><form method="post" action="/categories/delete" style="display:inline-block; margin-left:8px;" onsubmit="return confirm('Permanently delete category <?=e(addslashes($item['name']))?>?');"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="category_id" value="<?=e($item['id'])?>"><button class="btn-action-delete" type="submit">🗑 Delete</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
 
 function products_page(): void { $items=db()->query('SELECT p.id,p.sku,p.name,p.price,p.lowStockAt,p.active,c.name category FROM Product p JOIN Category c ON c.id=p.categoryId ORDER BY p.updatedAt DESC')->fetchAll(); $categories=db()->query('SELECT id,name FROM Category WHERE active=1 ORDER BY name')->fetchAll(); ?><section class="panel"><h3>Create product</h3><form method="post" action="/products/create" class="form-grid"><input type="hidden" name="_token" value="<?=csrf_token()?>"><label>Name<input name="name" required></label><label>Slug (optional)<input name="slug"></label><label>SKU<input name="sku" required></label><label>Category<select name="category_id" required><option value="">Select category</option><?php foreach($categories as $category):?><option value="<?=e($category['id'])?>"><?=e($category['name'])?></option><?php endforeach?></select></label><label>Price in ₹<input name="price" type="number" min="0" required></label><label>Opening stock<input name="stock" type="number" min="0" value="0" required></label><label>Low-stock alert<input name="low_stock_at" type="number" min="0" value="5" required></label><label>Metal/finish<input name="metal"></label><label>Occasion<input name="occasion"></label><label class="wide">YouTube product video URL (optional)<input name="youtube_url" type="url" placeholder="https://www.youtube.com/watch?v=..."></label><label class="wide">Image URLs (one per line)<textarea name="images" required></textarea></label><label class="wide">Description<textarea name="description" required></textarea></label><label><input type="checkbox" name="featured"> Featured</label><label><input type="checkbox" name="is_new"> New arrival</label><button>Create product</button></form></section><section class="panel"><h3>Product controls</h3><table><thead><tr><th>Product</th><th>Category</th><th>Commercial settings</th></tr></thead><tbody><?php foreach($items as $item):?><tr><td><strong><?=e($item['name'])?></strong><small><?=e($item['sku'])?></small></td><td><?=e($item['category'])?></td><td><form method="post" action="/products/update" class="inline"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="product_id" value="<?=e($item['id'])?>"><input name="price" type="number" min="0" value="<?=e($item['price'])?>" required aria-label="Price"><input name="low_stock_at" type="number" min="0" value="<?=e($item['lowStockAt'])?>" required aria-label="Low stock threshold"><label><input name="active" type="checkbox" <?=$item['active']?'checked':''?>> Active</label><button>Save</button></form><form method="post" action="/products/delete" style="display:inline-block; margin-left:8px;" onsubmit="return confirm('Permanently delete product <?=e(addslashes($item['name']))?>?');"><input type="hidden" name="_token" value="<?=csrf_token()?>"><input type="hidden" name="product_id" value="<?=e($item['id'])?>"><button class="btn-action-delete" type="submit">🗑 Delete</button></form></td></tr><?php endforeach?></tbody></table></section><?php }
 
@@ -857,12 +926,13 @@ function render_media_desk(array $currentImages, string $formId): void {
 }
 
 function products_page_v2(): void {
-    $q=trim((string)($_GET['q']??'')); $category=trim((string)($_GET['category']??'')); $pdo=db();
-    $sql='SELECT p.id,p.sku,p.name,p.slug,p.price,p.compareAt,p.stock,p.lowStockAt,p.active,p.isFeatured,p.isNew,p.metal,p.occasion,p.images,c.name category FROM Product p JOIN Category c ON c.id=p.categoryId WHERE 1=1'; 
+    $q=trim((string)($_GET['q']??'')); $category=trim((string)($_GET['category']??'')); $featured=trim((string)($_GET['featured']??'')); $pdo=db();
+    $sql='SELECT p.id,p.sku,p.name,p.slug,p.price,p.compareAt,p.stock,p.lowStockAt,p.active,p.isFeatured,p.isNew,p.metal,p.occasion,p.images,p.position,c.name category FROM Product p JOIN Category c ON c.id=p.categoryId WHERE 1=1'; 
     $params=[];
     if($q!==''){ $sql.=' AND (p.name LIKE ? OR p.sku LIKE ?)'; $params[]='%'.$q.'%'; $params[]='%'.$q.'%'; }
     if($category!==''){ $sql.=' AND p.categoryId=?'; $params[]=$category; }
-    $sql.=' ORDER BY p.updatedAt DESC'; 
+    if($featured==='1'){ $sql.=' AND p.isFeatured=1'; }
+    $sql.=' ORDER BY p.position ASC, p.updatedAt DESC'; 
     $stmt=$pdo->prepare($sql); $stmt->execute($params); $items=$stmt->fetchAll();
     $categories=$pdo->query('SELECT id,name FROM Category WHERE active=1 ORDER BY name')->fetchAll();
 
@@ -872,6 +942,7 @@ function products_page_v2(): void {
     $draftCount = $totalCount - $liveCount;
     $lowStockCount = count(array_filter($items, fn($p) => (int)$p['stock'] > 0 && (int)$p['stock'] <= (int)$p['lowStockAt']));
     $outOfStockCount = count(array_filter($items, fn($p) => (int)$p['stock'] === 0));
+    $bestSellerCount = count(array_filter($items, fn($p) => (bool)$p['isFeatured']));
     ?>
     <section class="product-counter-bar">
         <div class="counter-chip">
@@ -881,6 +952,10 @@ function products_page_v2(): void {
         <div class="counter-chip">
             <small>Live on Store</small>
             <strong style="color:#087443;"><?=$liveCount?></strong>
+        </div>
+        <div class="counter-chip">
+            <small>Best Sellers</small>
+            <strong style="color:#b45309;"><?=$bestSellerCount?></strong>
         </div>
         <div class="counter-chip">
             <small>Hidden / Draft</small>
@@ -918,6 +993,9 @@ function products_page_v2(): void {
                 <label>Low-Stock Alert Qty<input name="low_stock_at" type="number" min="0" value="5" required></label>
                 <label>Metal / Finish<input name="metal" placeholder="Gold Finish"></label>
                 <label>Occasion / Theme<input name="occasion" placeholder="Bridal, Festive, Daily"></label>
+                <label>Storefront Ranking Rank<input name="position" type="number" min="0" value="0" placeholder="0 (Lower shows first)"></label>
+                <label class="wide">Available Colors (Comma separated)<input name="colors" placeholder="e.g. Gold, Antique Gold, Ruby Red"></label>
+                <label class="wide">Available Sizes (Comma separated)<input name="sizes" placeholder="e.g. Adjustable, 2.2, 2.4, 2.6"></label>
                 <label class="wide">YouTube Video URL (Optional)<input name="youtube_url" type="url" placeholder="https://www.youtube.com/watch?v=..."></label>
 
                 <!-- Media Desk with Gallery, Upload, and URL Support -->
@@ -952,6 +1030,12 @@ function products_page_v2(): void {
                     <?php endforeach; ?>
                 </select>
             </label>
+            <label>Curated Collection
+                <select name="featured">
+                    <option value="">All Products</option>
+                    <option value="1" <?=$featured==='1'?'selected':''?>>★ Best Sellers Only</option>
+                </select>
+            </label>
             <button type="submit">Filter</button>
             <a class="button-secondary" href="/products">Reset</a>
         </form>
@@ -964,6 +1048,7 @@ function products_page_v2(): void {
                         <th>Collection</th>
                         <th>Pricing</th>
                         <th>Stock Health</th>
+                        <th>Rank & Best Seller</th>
                         <th>Status</th>
                         <th style="text-align:right;">Actions</th>
                     </tr>
@@ -1023,12 +1108,30 @@ function products_page_v2(): void {
                                 <?php endif; ?>
                             </td>
                             <td>
+                                <div style="display:flex;flex-direction:column;gap:5px;">
+                                    <form method="post" action="/products/ranking" style="display:inline-flex;align-items:center;gap:4px;margin:0;">
+                                        <input type="hidden" name="_token" value="<?=csrf_token()?>">
+                                        <input type="hidden" name="product_id" value="<?=e($item['id'])?>">
+                                        <span style="font-size:10px;font-weight:700;color:#6b7280;">Rank:</span>
+                                        <input type="number" name="position" min="0" value="<?=e($item['position']??0)?>" style="width:55px;padding:3px 5px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;text-align:center;">
+                                        <button type="submit" class="button-secondary" style="padding:2px 6px;font-size:10px;font-weight:700;" title="Save ranking position">Save</button>
+                                    </form>
+                                    <form method="post" action="/products/bestseller" style="margin:0;">
+                                        <input type="hidden" name="_token" value="<?=csrf_token()?>">
+                                        <input type="hidden" name="product_id" value="<?=e($item['id'])?>">
+                                        <button type="submit" style="width:100%;text-align:center;padding:3px 6px;font-size:11px;font-weight:700;border-radius:6px;cursor:pointer;border:1px solid <?=$item['isFeatured']?'#facc15':'#e5e7eb'?>;background:<?=$item['isFeatured']?'#fef08a':'#f9fafb'?>;color:<?=$item['isFeatured']?'#854d0e':'#6b7280'?>;">
+                                            <?=$item['isFeatured']?'★ Best Seller':'☆ Feature'?>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                            <td>
                                 <div>
                                     <span class="status-pill <?=$item['active']?'status-live':'status-hidden'?>">
                                         <?=$item['active']?'Live':'Hidden'?>
                                     </span>
                                     <?php if ($item['isFeatured']): ?>
-                                        <div class="badge-featured">★ Featured</div>
+                                        <div class="badge-featured" style="margin-top:2px;">★ Best Seller</div>
                                     <?php endif; ?>
                                     <?php if ($item['isNew']): ?>
                                         <div style="font-size:10px;color:#1d4ed8;font-weight:700;margin-top:2px;">New Arrival</div>

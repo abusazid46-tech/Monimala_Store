@@ -79,6 +79,26 @@ export async function getCatalogCategories(): Promise<Category[]> {
 
 const getCachedBestSellers = unstable_cache(async (limit = 8): Promise<Product[]> => {
   const take = Math.min(Math.max(limit, 1), 12);
+
+  // 1. Prioritize admin-curated Best Sellers (isFeatured = true) ordered by position (ranking)
+  const featured = await prisma.product.findMany({
+    where: { active: true, isFeatured: true },
+    include: { category: true },
+    orderBy: [
+      { position: "asc" },
+      { createdAt: "desc" }
+    ],
+    take
+  });
+
+  if (featured.length >= take) {
+    return featured.map(productView);
+  }
+
+  const featuredIds = featured.map((p) => p.id);
+  const remaining = take - featured.length;
+
+  // 2. Supplement with actual top sales if fewer than limit
   const sales = await prisma.orderItem.groupBy({
     by: ["productId"],
     where: {
@@ -86,11 +106,14 @@ const getCachedBestSellers = unstable_cache(async (limit = 8): Promise<Product[]
         paymentStatus: "PAID",
         status: { not: "CANCELLED" }
       },
-      product: { active: true }
+      product: {
+        active: true,
+        ...(featuredIds.length ? { id: { notIn: featuredIds } } : {})
+      }
     },
     _sum: { quantity: true },
     orderBy: { _sum: { quantity: "desc" } },
-    take
+    take: remaining
   });
 
   const rankedIds = sales.map((sale) => sale.productId);
@@ -105,22 +128,26 @@ const getCachedBestSellers = unstable_cache(async (limit = 8): Promise<Product[]
     .map((id) => rankedById.get(id))
     .filter((product): product is NonNullable<typeof product> => Boolean(product));
 
-  const fallback = await prisma.product.findMany({
-    where: {
-      active: true,
-      ...(rankedIds.length ? { id: { notIn: rankedIds } } : {})
-    },
-    include: { category: true },
-    orderBy: [
-      { isFeatured: "desc" },
-      { isNew: "desc" },
-      { position: "asc" },
-      { createdAt: "desc" }
-    ],
-    take: take - ranked.length
-  });
+  const knownIds = [...featuredIds, ...rankedIds];
+  const stillNeeded = take - (featured.length + ranked.length);
 
-  return [...ranked, ...fallback].map(productView);
+  // 3. Fallback to newest active products if still needed
+  const fallback = stillNeeded > 0
+    ? await prisma.product.findMany({
+        where: {
+          active: true,
+          ...(knownIds.length ? { id: { notIn: knownIds } } : {})
+        },
+        include: { category: true },
+        orderBy: [
+          { position: "asc" },
+          { createdAt: "desc" }
+        ],
+        take: stillNeeded
+      })
+    : [];
+
+  return [...featured, ...ranked, ...fallback].map(productView);
 }, ["storefront-best-sellers"], { revalidate: 60, tags: ["products", "orders"] });
 
 export async function getBestSellingProducts(limit = 8): Promise<Product[]> {

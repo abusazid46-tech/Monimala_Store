@@ -73,11 +73,12 @@ export function ProductsManager({
   const [products, setProducts] = useState<AdminProduct[]>(initialProducts);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("ALL");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "LIVE" | "HIDDEN" | "LOW_STOCK">("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "LIVE" | "HIDDEN" | "LOW_STOCK" | "BEST_SELLERS">("ALL");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [productToDelete, setProductToDelete] = useState<AdminProduct | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [updatingRankId, setUpdatingRankId] = useState<string | null>(null);
 
   // New Product Form State
   const [newName, setNewName] = useState("");
@@ -89,6 +90,9 @@ export function ProductsManager({
   const [newLowStockAt, setNewLowStockAt] = useState<number>(5);
   const [newMetal, setNewMetal] = useState("Gold Finish");
   const [newOccasion, setNewOccasion] = useState("Festive");
+  const [newPosition, setNewPosition] = useState<number>(0);
+  const [newColors, setNewColors] = useState("");
+  const [newSizes, setNewSizes] = useState("");
   const [newDesc, setNewDesc] = useState("");
 
   // Media Desk State
@@ -123,12 +127,13 @@ export function ProductsManager({
     const hidden = total - live;
     const lowStock = products.filter((p) => p.stock <= p.lowStockAt && p.stock > 0).length;
     const outOfStock = products.filter((p) => p.stock === 0).length;
-    return { total, live, hidden, lowStock, outOfStock };
+    const bestSellers = products.filter((p) => p.isFeatured).length;
+    return { total, live, hidden, lowStock, outOfStock, bestSellers };
   }, [products]);
 
   // Filtered Products
   const filtered = useMemo(() => {
-    return products.filter((p) => {
+    const list = products.filter((p) => {
       const matchCat = categoryFilter === "ALL" || p.categoryId === categoryFilter;
       const q = search.toLowerCase().trim();
       const matchSearch =
@@ -143,10 +148,37 @@ export function ProductsManager({
       if (statusFilter === "LIVE") matchStatus = p.active;
       else if (statusFilter === "HIDDEN") matchStatus = !p.active;
       else if (statusFilter === "LOW_STOCK") matchStatus = p.stock <= p.lowStockAt;
+      else if (statusFilter === "BEST_SELLERS") matchStatus = p.isFeatured;
 
       return matchCat && matchSearch && matchStatus;
     });
+
+    if (statusFilter === "BEST_SELLERS") {
+      return [...list].sort((a, b) => a.position - b.position);
+    }
+    return list;
   }, [products, search, categoryFilter, statusFilter]);
+
+  // Inline Position / Ranking Update
+  async function updatePosition(id: string, newPos: number) {
+    setUpdatingRankId(id);
+    try {
+      const res = await fetch("/api/admin/products", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, position: newPos })
+      });
+      if (!res.ok) throw new Error("Failed to update rank");
+      setProducts((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, position: newPos } : p))
+      );
+      toast.success(`Ranking updated to #${newPos}`);
+    } catch {
+      toast.error("Failed to update product ranking");
+    } finally {
+      setUpdatingRankId(null);
+    }
+  }
 
   // Toggle Visibility
   async function toggleActive(id: string, current: boolean) {
@@ -338,7 +370,10 @@ export function ProductsManager({
           metal: newMetal,
           occasion: newOccasion,
           description: newDesc,
-          images: finalImages
+          images: finalImages,
+          position: newPosition,
+          colors: newColors ? newColors.split(",").map((s) => s.trim()).filter(Boolean) : [],
+          sizes: newSizes ? newSizes.split(",").map((s) => s.trim()).filter(Boolean) : []
         })
       });
       const data = await res.json();
@@ -357,6 +392,9 @@ export function ProductsManager({
       setIsCreateOpen(false);
       setNewName("");
       setNewSku("");
+      setNewPosition(0);
+      setNewColors("");
+      setNewSizes("");
       setNewDesc("");
       setAttachedImages([]);
       setUrlInput("");
@@ -459,13 +497,14 @@ export function ProductsManager({
 
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "ALL" | "LIVE" | "HIDDEN" | "LOW_STOCK")}
+            onChange={(e) => setStatusFilter(e.target.value as "ALL" | "LIVE" | "HIDDEN" | "LOW_STOCK" | "BEST_SELLERS")}
             className="h-9 rounded-xl border border-primary/20 bg-white px-3 text-xs font-semibold text-charcoal focus:ring-2 focus:ring-gold"
           >
-            <option value="ALL">All Statuses</option>
-            <option value="LIVE">Live on Store</option>
-            <option value="HIDDEN">Hidden / Draft</option>
-            <option value="LOW_STOCK">Low Stock Alert</option>
+            <option value="ALL">All Statuses ({products.length})</option>
+            <option value="BEST_SELLERS">★ Best Sellers ({metrics.bestSellers})</option>
+            <option value="LIVE">Live on Store ({metrics.live})</option>
+            <option value="HIDDEN">Hidden / Draft ({metrics.hidden})</option>
+            <option value="LOW_STOCK">Low Stock Alert ({metrics.lowStock})</option>
           </select>
         </div>
 
@@ -492,7 +531,8 @@ export function ProductsManager({
                 <th className="font-semibold">Category</th>
                 <th className="font-semibold">Pricing & Value</th>
                 <th className="font-semibold text-center">Stock Level</th>
-                <th className="font-semibold text-center">Featured</th>
+                <th className="font-semibold text-center">Rank</th>
+                <th className="font-semibold text-center">Best Seller</th>
                 <th className="font-semibold text-right px-5">Storefront Status</th>
               </tr>
             </thead>
@@ -586,19 +626,49 @@ export function ProductsManager({
                       )}
                     </td>
 
-                    {/* Featured Star */}
+                    {/* Rank Position */}
+                    <td className="text-center">
+                      <div className="inline-flex items-center gap-1 justify-center">
+                        <input
+                          type="number"
+                          min={0}
+                          defaultValue={product.position}
+                          key={`${product.id}-${product.position}`}
+                          onBlur={(e) => {
+                            const val = parseInt(e.target.value) || 0;
+                            if (val !== product.position) {
+                              updatePosition(product.id, val);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const val = parseInt((e.target as HTMLInputElement).value) || 0;
+                              if (val !== product.position) {
+                                updatePosition(product.id, val);
+                              }
+                            }
+                          }}
+                          disabled={updatingRankId === product.id}
+                          className="w-12 h-7 text-center text-xs font-bold rounded-lg border border-primary/20 bg-white focus:outline-none focus:ring-2 focus:ring-gold disabled:opacity-50"
+                          title="Storefront rank position (lower displays first). Press Enter or click away to save."
+                        />
+                      </div>
+                    </td>
+
+                    {/* Featured / Best Seller */}
                     <td className="text-center">
                       <button
                         type="button"
                         onClick={() => toggleFeatured(product.id, product.isFeatured)}
-                        title={product.isFeatured ? "Featured item" : "Click to feature"}
-                        className={`p-1.5 rounded-lg transition-colors ${
+                        title={product.isFeatured ? "Featured as Best Seller (Click to remove)" : "Click to feature as Best Seller"}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition-colors ${
                           product.isFeatured
-                            ? "text-amber-500 bg-amber-50 shadow-xs"
-                            : "text-charcoal/25 hover:text-amber-500 hover:bg-amber-50/50"
+                            ? "text-amber-700 bg-amber-50 border border-amber-300 shadow-xs"
+                            : "text-charcoal/40 hover:text-amber-600 hover:bg-amber-50/50 border border-transparent"
                         }`}
                       >
-                        <Star className="w-4 h-4 fill-current" />
+                        <Star className={`w-3.5 h-3.5 ${product.isFeatured ? "fill-amber-500 text-amber-500" : ""}`} />
+                        <span>{product.isFeatured ? "Best Seller" : "Feature"}</span>
                       </button>
                     </td>
 
@@ -773,6 +843,39 @@ export function ProductsManager({
                     value={newOccasion}
                     onChange={(e) => setNewOccasion(e.target.value)}
                     placeholder="e.g. Bridal, Festive, Daily Heritage"
+                    className="h-9 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-charcoal mb-1">Storefront Ranking (Position)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={newPosition}
+                    onChange={(e) => setNewPosition(parseInt(e.target.value) || 0)}
+                    placeholder="0 (Lower rank shows first)"
+                    className="h-9 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-charcoal mb-1">Available Colors (Comma-separated)</label>
+                  <Input
+                    value={newColors}
+                    onChange={(e) => setNewColors(e.target.value)}
+                    placeholder="e.g. Gold, Antique Gold, Ruby Red"
+                    className="h-9 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-charcoal mb-1">Available Sizes (Comma-separated)</label>
+                  <Input
+                    value={newSizes}
+                    onChange={(e) => setNewSizes(e.target.value)}
+                    placeholder="e.g. Adjustable, 2.2, 2.4, 2.6"
                     className="h-9 text-xs"
                   />
                 </div>
@@ -956,7 +1059,7 @@ export function ProductsManager({
                   </div>
 
                   {attachedImages.length > 0 ? (
-                    <div className="flex flex-wrap gap-2 p-2 bg-white rounded-xl border border-primary/10 max-h-36 overflow-y-auto">
+                    <div className="flex flex-wrap items-center gap-2 p-2 bg-white rounded-xl border border-primary/10 max-h-40 overflow-y-auto">
                       {attachedImages.map((imgUrl, idx) => (
                         <div
                           key={`${imgUrl}-${idx}`}
@@ -972,13 +1075,26 @@ export function ProductsManager({
                           <button
                             type="button"
                             onClick={() => removeAttachedImage(imgUrl)}
-                            className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/70 text-white flex items-center justify-center text-[10px] hover:bg-rose-600 transition-colors opacity-90 group-hover:opacity-100"
-                            title="Remove image"
+                            className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center text-[10px] shadow-sm hover:bg-rose-700 transition-colors z-10"
+                            title="Remove photo"
                           >
                             ✕
                           </button>
                         </div>
                       ))}
+                      {/* Direct + Add More Button */}
+                      <label className="w-14 h-14 rounded-lg border-2 border-dashed border-primary/30 hover:border-maroon hover:bg-cream/40 flex flex-col items-center justify-center cursor-pointer transition-colors text-charcoal/60 hover:text-maroon shrink-0" title="Add another photo">
+                        <UploadCloud className="w-4 h-4 mb-0.5" />
+                        <span className="text-[9px] font-bold">+ Add</span>
+                        <input
+                          type="file"
+                          multiple
+                          accept="image/*"
+                          className="hidden"
+                          disabled={isUploading}
+                          onChange={handleFileUpload}
+                        />
+                      </label>
                     </div>
                   ) : (
                     <div className="p-3 bg-white/70 rounded-xl border border-dashed border-primary/15 text-center text-[11px] text-charcoal/50">
